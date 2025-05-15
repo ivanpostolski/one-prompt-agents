@@ -107,9 +107,11 @@ async def autonomous_chat(agent, user_request: str, agent_max_turns: int = 100, 
                 
                 
                 history = single_agent_run.to_input_list()
-            
 
-                if all(step.checked for step in single_agent_run.final_output.plan):
+                if len(single_agent_run.final_output.plan) == 0:    
+                    logger.info("No plan generated, retrying.")
+                    user_request = "Plan shouldn't be empty. Revisit the conversation history and generate a new plan according to your goals."           
+                elif all(step.checked for step in single_agent_run.final_output.plan):
                     logger.info(f"Approved after {check} review cycle(s).")
                     return single_agent_run.final_output
                 else:
@@ -155,7 +157,6 @@ async def user_chat(agent):
                 result     = await Runner.run(
                     starting_agent=agent,
                     input=turn_input,
-                    # run_config=RunConfig(max_turns=5)  # safety guard,
                     max_turns=10
                 )
 

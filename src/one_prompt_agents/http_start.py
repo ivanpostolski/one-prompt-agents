@@ -8,7 +8,7 @@ def ensure_server(agent, prompt):
         return requests.get("http://127.0.0.1:9000/")
     except requests.exceptions.ConnectionError:
         # not up → start main.py in background
-        subprocess.Popen(["run_agent", "-v"])
+        subprocess.Popen(["run_agent", "-v", "--log"])
         # wait for server to spin up
         for i in range(20):
             time.sleep(0.5)

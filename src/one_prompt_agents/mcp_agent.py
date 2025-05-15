@@ -75,7 +75,7 @@ class MCPAgent(MCPServerSse):
         self.mcp.add_tool(
             name=f"start_agent_{name}",
             description=f"Starts the {name} agent.",
-            fn=lambda text: self._start(text)
+            fn=lambda inputs: self._start(inputs)
         )
 
         # Start FastMCP SSE for other agents to call
@@ -88,8 +88,8 @@ class MCPAgent(MCPServerSse):
             )
         )
 
-    def _start(self, text: str) -> str:
-        start_agent(self, text)
+    def _start(self, inputs) -> str:
+        start_agent(self, inputs)
         return 'Agent is running.'
 
     async def end_and_cleanup(self):
@@ -99,5 +99,5 @@ class MCPAgent(MCPServerSse):
         # cleanup SSE client
         await asyncio.gather(self.cleanup())
 
-def start_agent(mcp_agent: MCPAgent, text: str):
-    mcp_agent.job_queue.put_nowait((mcp_agent.agent, text))
+def start_agent(mcp_agent: MCPAgent, inputs):
+    mcp_agent.job_queue.put_nowait((mcp_agent.agent, str(inputs)))
