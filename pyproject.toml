@@ -1,0 +1,20 @@
+[project]
+name = "one-prompt-agents"
+version = "0.0.1"
+description = "A small Framework built on top of openai agents sdk to develop one prompt autonomous agents"
+authors = [{ name = "Ivan Postolski", email = "ivan.postolski@gmail.com" }]
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+run_agent = "one_prompt_agents.main:main"
+run_server = "one_prompt_agents.main:run_server"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
