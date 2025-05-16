@@ -5,20 +5,21 @@ import requests
 def ensure_server(agent, prompt):
     # health‐check any endpoint
     try:
-        return requests.get("http://127.0.0.1:9000/")
+        requests.get("http://127.0.0.1:9000/")
+        return True
     except requests.exceptions.ConnectionError:
         # not up → start main.py in background
         subprocess.Popen(["run_agent", "-v", "--log"])
         # wait for server to spin up
         for i in range(20):
-            time.sleep(0.5)
+            time.sleep(1)
             try:
                 requests.get("http://127.0.0.1:9000/")
-                return
+                return True
             except:
                 continue
-        print("Failed to start main.py HTTP server.", file=sys.stderr)
-        sys.exit(1)
+        print("Failed to start main.py HTTP server.")
+        return False
 
 def trigger(agent, prompt):
     url = f"http://127.0.0.1:9000/{agent}/run"
