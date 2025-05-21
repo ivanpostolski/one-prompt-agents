@@ -34,7 +34,8 @@ class MCPAgent(MCPServerSse):
         return_type: Any,
         inputs_description: str,
         mcp_servers: List[Any],
-        job_queue: asyncio.Queue
+        job_queue: asyncio.Queue,
+        model: str,
     ):
         global next_port
         next_port += 1
@@ -61,7 +62,7 @@ class MCPAgent(MCPServerSse):
         self.agent = Agent(
             name=name,
             instructions=instructions,
-            model='o4-mini',
+            model=model,
             output_type=return_type,
             mcp_servers=mcp_servers,
         )

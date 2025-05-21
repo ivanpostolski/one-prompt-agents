@@ -18,6 +18,7 @@ class AgentConfig(BaseModel):
     inputs_description: str
     tools: List[str]
     _path: Path = PrivateAttr()
+    model: str | None = None
 
 def discover_configs(agents_dir: Path) -> Dict[str, AgentConfig]:
     configs = {}
@@ -67,7 +68,6 @@ def load_agents(configs, load_order, static_servers, job_queue):
         return_type = folder / "return_type.py"
 
         # load return_type model
-        # mod = importlib.import_module(f"agents_config.{cfg._path}.return_type")
         mod = import_module_from_path(return_type)
         ReturnType = getattr(mod, cfg.return_type)
 
@@ -85,7 +85,8 @@ def load_agents(configs, load_order, static_servers, job_queue):
             return_type     = ReturnType,
             inputs_description   = cfg.inputs_description,
             mcp_servers    = tools,
-            job_queue  = job_queue
+            job_queue  = job_queue,
+            model= cfg.model if cfg.model is not None else "o4-mini", 
         )
         loaded[name] = mcp_agent
     return loaded

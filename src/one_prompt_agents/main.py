@@ -1,4 +1,4 @@
-import argparse, asyncio, signal, uvicorn
+import argparse, asyncio, signal, uvicorn, os
 from pathlib import Path
 from one_prompt_agents.agents_loader import discover_configs, topo_sort, load_agents
 
@@ -7,6 +7,9 @@ from one_prompt_agents.mcp_agent import start_agent
 from one_prompt_agents.mcp_servers_loader import collect_servers
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+from fastmcp import FastMCP
+from agents.mcp import MCPServerSse
 
 # Logging setup
 
@@ -48,7 +51,44 @@ async def run_agent_endpoint(agent_name: str, req: RunRequest):
     start_agent(agents[agent_name], req.prompt)
     return {"status": "started", "agent": agent_name}
 
+MAIN_MCP_PORT = os.getenv("MAIN_MCP_PORT", 22222)
 
+mcp = FastMCP(
+    name="one-prompt-agent-mcp",
+    version="0.2.0",
+    description="This MCP allows to get all links from an email file path.",
+)
+
+def change_agent_model(inputs):
+    """Change the model of the agent."""
+    agent_name = inputs.get("agent_name")
+    new_model = inputs.get("new_model")
+    if agent_name not in agents:
+        raise ValueError(f"Agent {agent_name} not found.")
+    if new_model is None:
+        raise ValueError("New model not provided.")
+    
+    # Change the model of the agent
+    agents[agent_name].agent.model = new_model
+    return f"Model of agent {agent_name} changed to {new_model}."
+
+mcp.add_tool(
+    name="change_agent_model",
+    description="Changes the model of the agent.",
+    fn=lambda inputs: change_agent_model(inputs))
+
+
+def start_mcp():
+    import asyncio
+    loop = asyncio.get_event_loop()
+    task = loop.create_task(
+        mcp.run_sse_async(
+            host='127.0.0.1',
+            port=MAIN_MCP_PORT,
+            log_level='debug'
+        )
+    )
+    return task
 
 def run_server():
     parser = argparse.ArgumentParser()
@@ -97,10 +137,15 @@ def main():
         print('Enabling logging')
         setup_logging(args.log_to_file) 
 
+    logging.info("Starting main mcp server...")
+    main_mcp_task = start_mcp()
+
     logging.info("Collecting MCP servers...")
 
     # 1. Prepare static servers
     mcp_servers, mcp_tasks = collect_servers()
+
+    mcp_tasks.append(main_mcp_task)
 
     logging.info(f"Servers collected:{list(mcp_servers.keys())}")
     
