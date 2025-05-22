@@ -1,0 +1,8 @@
+{
+    "name": "EchoAgent",
+    "prompt_file": "prompt.txt",
+    "return_type": "EchoResponse",
+    "inputs_description": "Any text prompt that the agent will echo back in the 'content' field.",
+    "tools": [],
+    "model": "o4-mini"
+}
