@@ -80,9 +80,16 @@ class CaptureLastAssistant(RunHooks):
 
 capture = CaptureLastAssistant()
 
+def continue_last_unchecked_strategy(final_output, history, agent):
+    if len(final_output.plan) == 0:
+        return False, "Plan shouldn't be empty. Revisit the conversation history and generate a new plan according to your goals."
+    elif all(step.checked for step in final_output.plan):
+        return True, None
+    else:
+        return False, "Continue with the first step of the plan that is not checked yet. And after verifing the step goal mark it as checked."
 
-async def autonomous_chat(agent, user_request: str, agent_max_turns: int = 100, max_turns: int = 15) -> None:
-    enable_verbose_stdout_logging()          # keeps the “Exported … traces” line
+async def autonomous_chat(agent, user_request: str, agent_max_turns: int = 100, max_turns: int = 15, end_strategy=continue_last_unchecked_strategy) -> None:
+    enable_verbose_stdout_logging()          # keeps the "Exported … traces" line
 
     await connect_mcps(agent)
 
@@ -108,25 +115,23 @@ async def autonomous_chat(agent, user_request: str, agent_max_turns: int = 100, 
                 
                 history = single_agent_run.to_input_list()
 
-                if len(single_agent_run.final_output.plan) == 0:    
-                    logger.info("No plan generated, retrying.")
-                    user_request = "Plan shouldn't be empty. Revisit the conversation history and generate a new plan according to your goals."           
-                elif all(step.checked for step in single_agent_run.final_output.plan):
+                # Use the end_strategy abstraction
+                end_agent_run, new_user_request = end_strategy(single_agent_run.final_output, history, agent)
+                if end_agent_run:
                     logger.info(f"Approved after {check} review cycle(s).")
                     return single_agent_run.final_output
                 else:
-                    logger.info(f"Revision requested after {check} review cycle(s).")
-                    user_request = "Continue with the first step of the plan that is not checked yet. And after verifing the step goal mark it as checked."
+                    user_request = new_user_request
                     logger.info(f"New user request: {user_request}")
 
             except Exception as e:
                 logger.info(f"Error: {e}, retrying")
-                user_request = f"Last command failed with error {e}. Please retry."            
+                user_request = f"Last command failed with error {e}. Please retry."
     return
 
 # ────── MAIN CHAT LOOP ────── #
 async def user_chat(agent):
-    enable_verbose_stdout_logging()     # prints “Exported … traces” on success&#8203;:contentReference[oaicite:0]{index=0}
+    enable_verbose_stdout_logging()     # prints "Exported … traces" on success:contentReference[oaicite:0]{index=0}
     history     = []                    # list[dict]
     workflow_id = f"User-Chat-{agent.name}"
 
@@ -135,7 +140,7 @@ async def user_chat(agent):
     await connect_mcps(agent)
 
     # Every turn of the conversation is wrapped in ONE trace ↓
-    with trace(workflow_id):            # SDK traces by default – this groups them&#8203;:contentReference[oaicite:1]{index=1}
+    with trace(workflow_id):            # SDK traces by default – this groups them:contentReference[oaicite:1]{index=1}
         while True:
             try:
                 user_text = await loop.run_in_executor(
@@ -167,12 +172,18 @@ async def user_chat(agent):
                 # Persist conversation state for next round
                 history = result.to_input_list()
         
-async def chat_worker(queue: "asyncio.Queue[Tuple[Any, str]]") -> None:
-    """Background task that consumes (agent, text) jobs forever."""
+async def chat_worker(queue: "asyncio.Queue[Tuple[Any, str, str]]") -> None:
+    """Background task that consumes (agent, text, strategy_name) jobs forever."""
+    # Map strategy names to functions
+    strategy_map = {
+        "default": continue_last_unchecked_strategy,
+        # Add more strategies here as needed
+    }
     while True:
-        agent, text = await queue.get()
+        agent, text, strategy_name = await queue.get()
         try:
-            await autonomous_chat(agent, text, max_turns=30)
+            end_strategy = strategy_map.get(strategy_name, continue_last_unchecked_strategy)
+            await autonomous_chat(agent, text, max_turns=30, end_strategy=end_strategy)
         except Exception:
             # log / report as you prefer
             import traceback; traceback.print_exc()
