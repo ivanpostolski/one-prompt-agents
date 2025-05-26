@@ -1,7 +1,9 @@
 import asyncio, itertools, sys
-from typing import Any, Tuple
+from typing import Any, Tuple, List, Set, Dict, Optional
 from agents import Runner, trace, enable_verbose_stdout_logging, RunHooks
 from contextlib import asynccontextmanager
+import uuid
+from dataclasses import dataclass, field
 
 from one_prompt_agents.mcp_agent import MCPAgent
 import logging
@@ -11,11 +13,13 @@ SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # braille spinner ± → pic
 
 # ────── STRATEGY BASE CLASS ────── #
 class ChatEndStrategy:
+    start_instruction: str = "Start by making a plan"
     def next_turn(self, final_output, history, agent):
         raise NotImplementedError
 
 # ────── CONTINUE LAST UNCHECKED STRATEGY ────── #
 class ContinueLastUncheckedStrategy(ChatEndStrategy):
+    start_instruction: str = "Start by making a plan"
     def next_turn(self, final_output, history, agent):
         if len(final_output.plan) == 0:
             return False, "Plan shouldn't be empty. Revisit the conversation history and generate a new plan according to your goals."
@@ -29,6 +33,7 @@ continue_last_unchecked_strategy = ContinueLastUncheckedStrategy().next_turn
 
 
 class PlanWatcherStrategy(ChatEndStrategy):
+    start_instruction: str = "Start by making a plan"
     def __init__(self):
         self.plan_dict = {}  # step_name -> step data
 
@@ -127,42 +132,62 @@ class CaptureLastAssistant(RunHooks):
 
 capture = CaptureLastAssistant()
 
-async def autonomous_chat(agent, user_request: str, end_strategy, agent_max_turns: int = 100, max_turns: int = 15, ) -> None:
+@dataclass
+class Job:
+    job_id: str
+    agent: Any
+    text: str
+    strategy_name: str
+    depends_on: List[str] = field(default_factory=list)
+    status: str = 'in_draft'  # 'in_draft', 'in_queue', 'in_progress', 'done'
+    chat_history: str = ''
+
+# Global dict to track all jobs
+JOBS: Dict[str, Job] = {}
+
+def get_done_jobs() -> Set[str]:
+    return {job_id for job_id, job in JOBS.items() if job.status == 'done'}
+
+async def submit_job(queue: "asyncio.Queue[Job]", agent, text, strategy_name, depends_on=None) -> str:
+    """Helper to submit a job to the queue with dependencies. Returns the job_id."""
+    job_id = str(uuid.uuid4())
+    job = Job(job_id=job_id, agent=agent, text=text, strategy_name=strategy_name, depends_on=depends_on or [], status='in_queue')
+    JOBS[job_id] = job
+    await queue.put(job)
+    return job_id
+
+async def autonomous_chat(agent, user_request: str, prompt_strategy_cls, agent_max_turns: int = 100, max_turns: int = 15, job_id: Optional[str] = None) -> None:
     enable_verbose_stdout_logging()          # keeps the "Exported … traces" line
 
     await connect_mcps(agent)
 
     trace_id = f"autonomous-chat-{agent.name}"
     with trace(trace_id) as tr: 
-        # groups all spans in one dashboard row
         history = []
-
+        chat_history_str = ''
+        prompt_strategy = prompt_strategy_cls()
         for check in range(1, max_turns + 1):
             try:
                 logger.info(f"Check {check} of {max_turns}")
-
-                # run the agent with the user request
-                # and the trace context from the outer scope
-                turn_input = [{"role": "user", "content": user_request}]
-
+                if check == 1 and job_id is not None:
+                    turn_input = [{"role": "user", "content": f"Your JOB_ID is {job_id},. {user_request} {prompt_strategy.start_instruction}"}]
+                else:
+                    turn_input = [{"role": "user", "content": user_request}]
                 single_agent_run = await Runner.run(agent, input=history + turn_input, hooks=capture)
-                
                 logger.info("Agent run output:\n", single_agent_run.final_output)
-                logger.info("Trace URL:",
-                    f"https://platform.openai.com/traces/{tr.trace_id}")
-                
-                
+                logger.info("Trace URL:", f"https://platform.openai.com/traces/{tr.trace_id}")
                 history = single_agent_run.to_input_list()
-
-                # Use the end_strategy abstraction
-                end_agent_run, new_user_request = end_strategy(single_agent_run.final_output, history, agent)
+                # Update chat_history
+                chat_history_str += f"User: {user_request}\nAssistant: {getattr(single_agent_run.final_output, 'content', '')}\n"
+                if job_id and job_id in JOBS:
+                    JOBS[job_id].chat_history = chat_history_str
+                end_agent_run, new_user_request = prompt_strategy.next_turn(single_agent_run.final_output, history, agent)
                 if end_agent_run:
                     logger.info(f"Approved after {check} review cycle(s).")
                     return single_agent_run.final_output
                 else:
                     user_request = new_user_request
                     logger.info(f"New user request: {user_request}")
-
             except Exception as e:
                 logger.info(f"Error: {e}, retrying")
                 user_request = f"Last command failed with error {e}. Please retry."
@@ -222,19 +247,33 @@ def get_chat_strategy(strategy_name: str) -> ChatEndStrategy:
     strategy_cls = chat_strategy_map.get(strategy_name, ContinueLastUncheckedStrategy)
     return strategy_cls()
 
-async def chat_worker(queue: "asyncio.Queue[Tuple[Any, str, str]]") -> None:
-    """Background task that consumes (agent, text, strategy_name) jobs forever."""
-    # Map strategy names to classes
-    
+async def chat_worker(queue: "asyncio.Queue[Job]") -> None:
+    strategy_map = {
+        "default": ContinueLastUncheckedStrategy,
+        "plan_watcher": PlanWatcherStrategy,
+        # Add more strategies here as needed
+    }
     while True:
-        agent, text, strategy_name = await queue.get()
+        job = await queue.get()
+        # Check dependencies
+        DONE_JOBS = get_done_jobs()
+        unmet = [dep for dep in job.depends_on if dep not in DONE_JOBS]
+        if unmet:
+            logger.info(f"Job {job.job_id} waiting for dependencies: {unmet}. Requeuing with backoff (non-blocking).")
+            async def requeue_later(job, delay, queue):
+                await asyncio.sleep(delay)
+                await queue.put(job)
+            asyncio.create_task(requeue_later(job, 300, queue))
+            queue.task_done()
+            continue
         try:
-            # Instantiate the strategy for each job
-            strategy_instance = get_chat_strategy(strategy_name)
-            await autonomous_chat(agent, text, max_turns=30, end_strategy=strategy_instance.next_turn)
+            job.status = 'in_progress'
+            prompt_strategy_cls = strategy_map.get(job.strategy_name, ContinueLastUncheckedStrategy)
+            await autonomous_chat(job.agent, job.text, prompt_strategy_cls=prompt_strategy_cls, max_turns=30, job_id=job.job_id)
+            job.status = 'done'
+            logger.info(f"Job {job.job_id} completed. Status set to done.")
         except Exception:
-            # log / report as you prefer
             import traceback; traceback.print_exc()
         finally:
-            queue.task_done()    # let join() know we're done
+            queue.task_done()
 

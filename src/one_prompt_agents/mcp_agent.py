@@ -7,6 +7,7 @@ from agents.mcp import MCPServerStdio, MCPServerSse
 from agents import Agent, Runner, trace, enable_verbose_stdout_logging, RunHooks
 from typing import Any, List
 from one_prompt_agents.utils import uvicorn_log_level
+from one_prompt_agents.chat_patterns import submit_job
 
 import logging
 logger = logging.getLogger(__name__) 
@@ -80,6 +81,11 @@ class MCPAgent(MCPServerSse):
             description=f"Starts the {name} agent.",
             fn=lambda inputs: self._start(inputs)
         )
+        self.mcp.add_tool(
+            name=f"start_and_notify_when_done_{name}",
+            description=f"Starts the {name} agent and notifies when another job is done.",
+            fn=lambda inputs: self._start_and_notify(inputs)
+        )
 
         # Start FastMCP SSE for other agents to call
         loop = asyncio.get_event_loop()
@@ -92,8 +98,26 @@ class MCPAgent(MCPServerSse):
         )
 
     def _start(self, inputs) -> str:
-        start_agent(self, inputs, self.strategy_name)
-        return 'Agent is running.'
+        # Submit a job for this agent, no dependencies
+        job_id = asyncio.get_event_loop().run_until_complete(
+            submit_job(self.job_queue, self.agent, str(inputs), self.strategy_name)
+        )
+        return f'Agent is running. Job started: {job_id}'
+
+    def _start_and_notify(self, inputs) -> str:
+        # Expects inputs to be a dict with 'job_description' and 'notify_job_id'
+        job_description = inputs.get('job_description')
+        notify_job_id = inputs.get('notify_job_id')
+        # Submit the first job (target agent)
+        first_job_id = asyncio.get_event_loop().run_until_complete(
+            submit_job(self.job_queue, self.agent, str(job_description), self.strategy_name)
+        )
+        # Submit the notification job, which depends on the first job
+        notify_description = inputs.get('notify_description', 'Notification job')
+        asyncio.get_event_loop().run_until_complete(
+            submit_job(self.job_queue, self.agent, str(notify_description), self.strategy_name, depends_on=[first_job_id])
+        )
+        return f'Job started: {first_job_id} and will notify you when finished.'
 
     async def end_and_cleanup(self):
         if self.mcp_task:
@@ -103,4 +127,7 @@ class MCPAgent(MCPServerSse):
         await asyncio.gather(self.cleanup())
 
 def start_agent(mcp_agent: MCPAgent, inputs, strategy_name=None):
-    mcp_agent.job_queue.put_nowait((mcp_agent.agent, str(inputs), strategy_name or getattr(mcp_agent, 'strategy_name', 'default')))
+    # Submit a job for this agent, no dependencies
+    asyncio.get_event_loop().run_until_complete(
+        submit_job(mcp_agent.job_queue, mcp_agent.agent, str(inputs), strategy_name or getattr(mcp_agent, 'strategy_name', 'default'))
+    )
