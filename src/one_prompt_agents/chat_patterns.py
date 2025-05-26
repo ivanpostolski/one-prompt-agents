@@ -9,6 +9,53 @@ logger = logging.getLogger(__name__)
 
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # braille spinner ± → pick what you like
 
+# ────── STRATEGY BASE CLASS ────── #
+class ChatEndStrategy:
+    def next_turn(self, final_output, history, agent):
+        raise NotImplementedError
+
+# ────── CONTINUE LAST UNCHECKED STRATEGY ────── #
+class ContinueLastUncheckedStrategy(ChatEndStrategy):
+    def next_turn(self, final_output, history, agent):
+        if len(final_output.plan) == 0:
+            return False, "Plan shouldn't be empty. Revisit the conversation history and generate a new plan according to your goals."
+        elif all(step.checked for step in final_output.plan):
+            return True, None
+        else:
+            return False, "Continue with the first step of the plan that is not checked yet. And after verifing the step goal mark it as checked."
+
+# For backward compatibility, keep the old function as a reference to the class method
+continue_last_unchecked_strategy = ContinueLastUncheckedStrategy().next_turn
+
+
+class PlanWatcherStrategy(ChatEndStrategy):
+    def __init__(self):
+        self.plan_dict = {}  # step_name -> step data
+
+    def next_turn(self, final_output, history, agent):
+        plan = getattr(final_output, 'plan', [])
+        new_plan_dict = {getattr(step, 'step_name', str(i)): step for i, step in enumerate(plan)}
+        messages = []
+
+        # Check for removed steps that were not checked
+        for step_name, old_step in self.plan_dict.items():
+            if step_name not in new_plan_dict:
+                if not getattr(old_step, 'checked', False):
+                    messages.append(f"The step: {step_name} was unexpectedly removed from your plan, please review it and add it again properly.")
+
+        # Update internal plan_dict with the latest plan
+        self.plan_dict = new_plan_dict.copy()
+
+        if len(plan) == 0:
+            messages.append("Plan shouldn't be empty. Revisit the conversation history and generate a new plan according to your goals.")
+            return False, " ".join(messages)
+        elif all(getattr(step, 'checked', False) for step in plan):
+            return True, None
+        else:
+            if not messages:
+                messages.append("Continue with the first step of the plan that is not checked yet. And after verifying the step goal mark it as checked.")
+            return False, " ".join(messages)
+
 @asynccontextmanager
 async def spinner(text: str = ""):
     """Async context manager that shows an animated spinner.
@@ -80,15 +127,7 @@ class CaptureLastAssistant(RunHooks):
 
 capture = CaptureLastAssistant()
 
-def continue_last_unchecked_strategy(final_output, history, agent):
-    if len(final_output.plan) == 0:
-        return False, "Plan shouldn't be empty. Revisit the conversation history and generate a new plan according to your goals."
-    elif all(step.checked for step in final_output.plan):
-        return True, None
-    else:
-        return False, "Continue with the first step of the plan that is not checked yet. And after verifing the step goal mark it as checked."
-
-async def autonomous_chat(agent, user_request: str, agent_max_turns: int = 100, max_turns: int = 15, end_strategy=continue_last_unchecked_strategy) -> None:
+async def autonomous_chat(agent, user_request: str, end_strategy, agent_max_turns: int = 100, max_turns: int = 15, ) -> None:
     enable_verbose_stdout_logging()          # keeps the "Exported … traces" line
 
     await connect_mcps(agent)
@@ -171,21 +210,31 @@ async def user_chat(agent):
 
                 # Persist conversation state for next round
                 history = result.to_input_list()
-        
+
+
+chat_strategy_map = {
+        "default": ContinueLastUncheckedStrategy,
+        "plan_watcher": PlanWatcherStrategy,
+        # Add more strategies here as needed
+}
+
+def get_chat_strategy(strategy_name: str) -> ChatEndStrategy:
+    strategy_cls = chat_strategy_map.get(strategy_name, ContinueLastUncheckedStrategy)
+    return strategy_cls()
+
 async def chat_worker(queue: "asyncio.Queue[Tuple[Any, str, str]]") -> None:
     """Background task that consumes (agent, text, strategy_name) jobs forever."""
-    # Map strategy names to functions
-    strategy_map = {
-        "default": continue_last_unchecked_strategy,
-        # Add more strategies here as needed
-    }
+    # Map strategy names to classes
+    
     while True:
         agent, text, strategy_name = await queue.get()
         try:
-            end_strategy = strategy_map.get(strategy_name, continue_last_unchecked_strategy)
-            await autonomous_chat(agent, text, max_turns=30, end_strategy=end_strategy)
+            # Instantiate the strategy for each job
+            strategy_instance = get_chat_strategy(strategy_name)
+            await autonomous_chat(agent, text, max_turns=30, end_strategy=strategy_instance.next_turn)
         except Exception:
             # log / report as you prefer
             import traceback; traceback.print_exc()
         finally:
             queue.task_done()    # let join() know we're done
+
