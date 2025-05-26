@@ -19,6 +19,7 @@ class AgentConfig(BaseModel):
     tools: List[str]
     _path: Path = PrivateAttr()
     model: str | None = None
+    strategy_name: str = "default"
 
 def discover_configs(agents_dir: Path) -> Dict[str, AgentConfig]:
     configs = {}
@@ -26,6 +27,8 @@ def discover_configs(agents_dir: Path) -> Dict[str, AgentConfig]:
         cfg_path = folder / "config.json"
         if cfg_path.exists():
             data = json.loads(cfg_path.read_text())
+            if "strategy_name" not in data:
+                data["strategy_name"] = "default"
             configs[data["name"]] = AgentConfig(**data)
             configs[data["name"]]._path = folder.name
     return configs
@@ -87,6 +90,7 @@ def load_agents(configs, load_order, static_servers, job_queue):
             mcp_servers    = tools,
             job_queue  = job_queue,
             model= cfg.model if cfg.model is not None else "o4-mini", 
+            strategy_name = cfg.strategy_name if hasattr(cfg, 'strategy_name') else "default",
         )
         loaded[name] = mcp_agent
     return loaded

@@ -36,6 +36,7 @@ class MCPAgent(MCPServerSse):
         mcp_servers: List[Any],
         job_queue: asyncio.Queue,
         model: str,
+        strategy_name: str = "default",
     ):
         global next_port
         next_port += 1
@@ -55,6 +56,7 @@ class MCPAgent(MCPServerSse):
         self.prompt_file = prompt_file
         self.return_type = return_type
         self.inputs_description = inputs_description
+        self.strategy_name = strategy_name
 
         with open(prompt_file, 'r', encoding='utf-8') as f:
             instructions = f.read()
@@ -90,7 +92,7 @@ class MCPAgent(MCPServerSse):
         )
 
     def _start(self, inputs) -> str:
-        start_agent(self, inputs)
+        start_agent(self, inputs, self.strategy_name)
         return 'Agent is running.'
 
     async def end_and_cleanup(self):
@@ -100,5 +102,5 @@ class MCPAgent(MCPServerSse):
         # cleanup SSE client
         await asyncio.gather(self.cleanup())
 
-def start_agent(mcp_agent: MCPAgent, inputs):
-    mcp_agent.job_queue.put_nowait((mcp_agent.agent, str(inputs)))
+def start_agent(mcp_agent: MCPAgent, inputs, strategy_name=None):
+    mcp_agent.job_queue.put_nowait((mcp_agent.agent, str(inputs), strategy_name or getattr(mcp_agent, 'strategy_name', 'default')))

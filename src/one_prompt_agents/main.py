@@ -2,7 +2,7 @@ import argparse, asyncio, signal, uvicorn, os
 from pathlib import Path
 from one_prompt_agents.agents_loader import discover_configs, topo_sort, load_agents
 
-from one_prompt_agents.chat_patterns import chat_worker, user_chat, autonomous_chat
+from one_prompt_agents.chat_patterns import chat_worker, user_chat, autonomous_chat, get_chat_strategy
 from one_prompt_agents.mcp_agent import start_agent
 from one_prompt_agents.mcp_servers_loader import collect_servers
 from fastapi import FastAPI, HTTPException
@@ -179,7 +179,7 @@ def main():
             # kick off console autonomous run mode
             target = agents[args.agent_name]
             logging.info(f'Target agent {target}')
-            loop.run_until_complete(autonomous_chat(target.agent, args.prompt, max_turns=30))
+            loop.run_until_complete(autonomous_chat(target.agent, args.prompt, get_chat_strategy(target.strategy_name).next_turn, max_turns=30))
         
         
         # kick off HTTP server mode
