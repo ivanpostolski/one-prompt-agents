@@ -8,18 +8,23 @@ from dataclasses import dataclass, field
 import logging
 logger = logging.getLogger(__name__) 
 
-SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # braille spinner ± → pick what you like
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" 
 
 # ────── STRATEGY BASE CLASS ────── #
 class ChatEndStrategy:
     start_instruction: str = "Start by making a plan"
-    def next_turn(self, final_output, history, agent):
+    def next_turn(self, final_output, history, agent, job_id: str) -> Tuple[bool, Optional[str]]:
         raise NotImplementedError
 
 # ────── CONTINUE LAST UNCHECKED STRATEGY ────── #
 class ContinueLastUncheckedStrategy(ChatEndStrategy):
     start_instruction: str = "Start by making a plan"
-    def next_turn(self, final_output, history, agent):
+    def next_turn(self, final_output, history, agent, job_id: str) -> Tuple[bool, Optional[str]]:
+        job = JOBS.get(job_id)
+        if not job or job.status != 'in_progress':
+            logger.info(f"ContinueLastUncheckedStrategy for job {job_id}: job status is '{job.status if job else 'not found'}'. Signaling agent run to end.")
+            return False, None
+
         if len(final_output.plan) == 0:
             return False, "Plan shouldn't be empty. Revisit the conversation history and generate a new plan according to your goals."
         elif all(step.checked for step in final_output.plan):
@@ -31,9 +36,15 @@ class ContinueLastUncheckedStrategy(ChatEndStrategy):
 class PlanWatcherStrategy(ChatEndStrategy):
     start_instruction: str = "Start by making a plan"
     def __init__(self):
+        super().__init__()
         self.plan_dict = {}  # step_name -> step data
 
-    def next_turn(self, final_output, history, agent):
+    def next_turn(self, final_output, history, agent, job_id: str) -> Tuple[bool, Optional[str]]:
+        job = JOBS.get(job_id)
+        if not job or job.status != 'in_progress':
+            logger.info(f"PlanWatcherStrategy for job {job_id}: job status is '{job.status if job else 'not found'}'. Signaling agent run to end.")
+            return False, None
+
         plan = getattr(final_output, 'plan', [])
         new_plan_dict = {getattr(step, 'step_name', str(i)): step for i, step in enumerate(plan)}
         messages = []
@@ -136,7 +147,8 @@ class Job:
     strategy_name: str
     depends_on: List[str] = field(default_factory=list)
     status: str = 'in_draft'  # 'in_draft', 'in_queue', 'in_progress', 'done'
-    chat_history: str = ''
+    chat_history: List[Dict[str, str]] = field(default_factory=list)
+    summary: str | None = ""
 
 # Global dict to track all jobs
 JOBS: Dict[str, Job] = {}
@@ -156,42 +168,84 @@ async def submit_job(queue: "asyncio.Queue[Job]", agent, text, strategy_name, de
     await queue.put(job)
     return job_id
 
-async def autonomous_chat(agent, user_request: str, prompt_strategy_cls, agent_max_turns: int = 100, max_turns: int = 15, job_id: Optional[str] = None) -> None:
-    enable_verbose_stdout_logging()          # keeps the "Exported … traces" line
+async def autonomous_chat(job: Job, prompt_strategy_cls, max_turns: int = 15) -> None:
+    enable_verbose_stdout_logging()
 
-    await connect_mcps(agent)
+    # It's good practice to ensure mcps are connected before each autonomous session if they can disconnect.
+    # If connect_mcps is idempotent or handles already connected state, this is fine.
+    await connect_mcps(job.agent)
 
-    trace_id = f"autonomous-chat-{agent.name}"
-    with trace(trace_id) as tr: 
-        history = []
-        chat_history_str = ''
+    trace_id = f"autonomous-chat-{job.agent.name}-{job.job_id}"
+    with trace(trace_id) as tr:
         prompt_strategy = prompt_strategy_cls()
+        
+        current_conversation_history: List[Dict[str, str]]
+        current_user_message_content: str
+
+        if not job.chat_history:  # New job
+            current_conversation_history = []
+            # Combine JOB_ID, original request, and strategy's start instruction for the very first turn
+            initial_prompt_parts = []
+            if job.job_id: # Add JOB_ID if present
+                initial_prompt_parts.append(f"Your JOB_ID is {job.job_id}.")
+            initial_prompt_parts.append(job.text) # Original user request for the job
+            if prompt_strategy.start_instruction: # Strategy specific start instruction
+                initial_prompt_parts.append(prompt_strategy.start_instruction)
+            current_user_message_content = " ".join(initial_prompt_parts)
+            logger.info(f"Starting new job {job.job_id} with initial prompt: {current_user_message_content}")
+        else:  # Resuming job
+            current_conversation_history = job.chat_history.copy()
+            current_user_message_content = "Jobs waited have ended. Resume your task."
+            logger.info(f"Resuming job {job.job_id} with history. Resume prompt: {current_user_message_content}")
+
         for check in range(1, max_turns + 1):
             try:
-                logger.info(f"Check {check} of {max_turns}")
-                if check == 1 and job_id is not None:
-                    turn_input = [{"role": "user", "content": f"Your JOB_ID is {job_id}.\n {user_request}. {prompt_strategy.start_instruction}"}]
-                else:
-                    turn_input = [{"role": "user", "content": user_request}]
-                single_agent_run = await Runner.run(agent, input=history + turn_input, hooks=capture)
-                logger.info("Agent run output:\n", single_agent_run.final_output)
-                logger.info("Trace URL:", f"https://platform.openai.com/traces/{tr.trace_id}")
-                history = single_agent_run.to_input_list()
-                # Update chat_history
-                chat_history_str += ".\n".join(map(lambda prompt: str(prompt), history))
-                if job_id and job_id in JOBS:
-                    JOBS[job_id].chat_history = chat_history_str
-                end_agent_run, new_user_request = prompt_strategy.next_turn(single_agent_run.final_output, history, agent)
+                logger.info(f"Job {job.job_id}: Check {check} of {max_turns}")
+                
+                # Construct input for Runner.run
+                # The history part is current_conversation_history
+                # The new user message is current_user_message_content
+                turn_input_for_api = current_conversation_history + [{"role": "user", "content": current_user_message_content}]
+                
+                single_agent_run = await Runner.run(job.agent, input=turn_input_for_api, hooks=capture) # Consider Runner's own max_turns if applicable
+                
+                logger.info(f"Job {job.job_id}: Agent run output:\n{single_agent_run.final_output}")
+                logger.info(f"Job {job.job_id}: Trace URL: https://platform.openai.com/traces/{tr.trace_id}")
+
+                # Update history from the agent's run
+                current_conversation_history = single_agent_run.to_input_list()
+                # Persist the full, updated history to the job object
+                job.chat_history = current_conversation_history.copy()
+
+                if "summary" in single_agent_run.final_output:
+                    job.summary = single_agent_run.final_output.summary
+
+                end_agent_run, new_user_request_content = prompt_strategy.next_turn(
+                    single_agent_run.final_output,
+                    current_conversation_history, # Pass the most up-to-date history
+                    job.agent,
+                    job.job_id # Pass job_id
+                )
+
                 if end_agent_run:
-                    logger.info(f"Approved after {check} review cycle(s).")
-                    return single_agent_run.final_output
+                    logger.info(f"Job {job.job_id}: Approved by strategy after {check} review cycle(s).")
+                    job.status = 'done' # Set job status to done if strategy indicates completion
+                    logger.info(f"Job {job.job_id}: Status set to done by autonomous_chat.")
+                    return  # Job completed its autonomous cycle successfully
                 else:
-                    user_request = new_user_request
-                    logger.info(f"New user request: {user_request}")
+                    if job.status == "in_queue":
+                        return # If the job is modified to queue, don't continue
+                    current_user_message_content = new_user_request_content
+                    logger.info(f"Job {job.job_id}: New user request for next turn: {current_user_message_content}")
+
             except Exception as e:
-                logger.info(f"Error: {e}, retrying")
-                user_request = f"Last command failed with error {e}. Please retry."
-    return
+                logger.error(f"Job {job.job_id}: Error during check {check}: {e}", exc_info=True)
+                # Prepare a user message to inform the agent about the error for the next attempt
+                current_user_message_content = f"The last attempt failed with an error: {e}. Please review the situation, check your plan, and try to recover and continue the task."
+                # Potentially add a small delay or specific error handling strategy here
+        
+        logger.info(f"Job {job.job_id}: Max turns ({max_turns}) reached. Current history saved. The job remains 'in_progress'.")
+    return # Implicitly returns None
 
 # ────── MAIN CHAT LOOP ────── #
 async def user_chat(agent):
@@ -262,13 +316,22 @@ async def chat_worker(queue: "asyncio.Queue[Job]") -> None:
             queue.task_done()
             continue
         try:
-            job.status = 'in_progress'
+            job.status = 'in_progress' # Worker sets to in_progress before starting
             prompt_strategy_cls = chat_strategy_map.get(job.strategy_name, ContinueLastUncheckedStrategy)
-            await autonomous_chat(job.agent, job.text, prompt_strategy_cls=prompt_strategy_cls, max_turns=30, job_id=job.job_id)
-            job.status = 'done'
-            logger.info(f"Job {job.job_id} completed. Status set to done.")
+            await autonomous_chat(job=job, prompt_strategy_cls=prompt_strategy_cls, max_turns=30)
+            
+            # autonomous_chat now handles setting job.status to 'done' if strategy completes.
+            # If autonomous_chat finishes and job.status is not 'done', it means max_turns was reached.
+            if job.status == 'in_progress':
+                logger.info(f"Job {job.job_id} finished autonomous_chat (likely max_turns reached), status remains 'in_progress'. Will be picked up again if requeued.")
+            elif job.status == 'done':
+                logger.info(f"Job {job.job_id} completed and marked as done by autonomous_chat.")
+            elif job.status == 'in_queue':
+                logger.info(f"Job {job.job_id} moved to the queue.")
+
         except Exception:
-            import traceback; traceback.print_exc()
+            job.status = 'error'
+            logger.error(f"Job {job.job_id} failed with exception in chat_worker.", exc_info=True)
         finally:
             queue.task_done()
 

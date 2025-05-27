@@ -2,7 +2,7 @@ import argparse, asyncio, signal, uvicorn, os
 from pathlib import Path
 from one_prompt_agents.agents_loader import discover_configs, topo_sort, load_agents
 
-from one_prompt_agents.chat_patterns import chat_worker, user_chat, autonomous_chat, get_chat_strategy, submit_job
+from one_prompt_agents.chat_patterns import chat_worker, user_chat, submit_job, JOBS
 from one_prompt_agents.mcp_agent import start_agent
 from one_prompt_agents.mcp_servers_loader import collect_servers
 from fastapi import FastAPI, HTTPException
@@ -76,6 +76,28 @@ mcp.add_tool(
     name="change_agent_model",
     description="Changes the model of the agent.",
     fn=lambda inputs: change_agent_model(inputs))
+
+
+def get_job(job_id: str):
+    """Get a job from the job queue."""
+    if job_id not in JOBS.keys():
+        return "Job not found."
+    
+    def get_job_status_and_summary(job_id: str):
+        job = JOBS.get(job_id)
+        if job.summary:
+            return f"{job.job_id}: {job.status}. Summary: {job.summary}"
+        else:
+            return f"{job.job_id}: {job.status}"
+        
+    return get_job_status_and_summary(job_id)
+
+mcp.add_tool(
+    name="get_job",
+    description="Get the status and summary of a job.",
+    fn=get_job
+)
+
 
 
 def start_mcp():
