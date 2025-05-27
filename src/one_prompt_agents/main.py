@@ -2,7 +2,7 @@ import argparse, asyncio, signal, uvicorn, os
 from pathlib import Path
 from one_prompt_agents.agents_loader import discover_configs, topo_sort, load_agents
 
-from one_prompt_agents.chat_patterns import chat_worker, user_chat, autonomous_chat, get_chat_strategy
+from one_prompt_agents.chat_patterns import chat_worker, user_chat, autonomous_chat, get_chat_strategy, submit_job
 from one_prompt_agents.mcp_agent import start_agent
 from one_prompt_agents.mcp_servers_loader import collect_servers
 from fastapi import FastAPI, HTTPException
@@ -103,6 +103,8 @@ def run_server():
 
 def main():
     global agents
+    NUM_WORKERS = 4 # Define the number of workers
+
     parser = argparse.ArgumentParser()
     parser.add_argument("agent_name", nargs="?",
                         help="Agent to target")
@@ -160,7 +162,9 @@ def main():
         loop.add_signal_handler(sig, loop.stop)
 
     job_queue  = asyncio.Queue()
-    worker     = loop.create_task(chat_worker(job_queue))
+    # worker     = loop.create_task(chat_worker(job_queue)) # Old single worker
+    worker_tasks = [loop.create_task(chat_worker(job_queue)) for _ in range(NUM_WORKERS)] # Create multiple worker tasks
+    logging.info(f"Started {NUM_WORKERS} chat workers.")
 
     try:
         # 4. Load all agents
@@ -179,7 +183,15 @@ def main():
             # kick off console autonomous run mode
             target = agents[args.agent_name]
             logging.info(f'Target agent {target}')
-            loop.run_until_complete(autonomous_chat(target.agent, args.prompt, get_chat_strategy(target.strategy_name).next_turn, max_turns=30))
+            
+            # New block to submit job and wait
+            async def run_job_and_wait():
+                job_id = await submit_job(job_queue, target.agent, args.prompt, target.strategy_name)
+                logging.info(f"Submitted job {job_id} for agent {args.agent_name}")
+                await job_queue.join() # Wait for all jobs to be processed
+                logging.info(f"Job {job_id} and all other queued jobs completed.")
+
+            loop.run_until_complete(run_job_and_wait())
         
         
         # kick off HTTP server mode
@@ -211,7 +223,13 @@ def main():
             mcp_task.cancel()                  # cancel the server tasks
             loop.run_until_complete(asyncio.gather(mcp_task, return_exceptions=True))
         logging.info(f"Servers shut down")
-        worker.cancel()
-        logging.info(f"Worker shut down")
+        # worker.cancel() # Old single worker cancellation
+        # logging.info(f"Worker shut down") # Old single worker log
+        logging.info(f"Shutting down {len(worker_tasks)} chat workers...")
+        for worker_task in worker_tasks: # Cancel all worker tasks
+            worker_task.cancel()
+        # Wait for all worker tasks to be cancelled
+        loop.run_until_complete(asyncio.gather(*worker_tasks, return_exceptions=True))
+        logging.info(f"All chat workers shut down.")
         loop.close()
         logging.info(f"Event loop closed")

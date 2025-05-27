@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 import uuid
 from dataclasses import dataclass, field
 
-from one_prompt_agents.mcp_agent import MCPAgent
 import logging
 logger = logging.getLogger(__name__) 
 
@@ -27,9 +26,6 @@ class ContinueLastUncheckedStrategy(ChatEndStrategy):
             return True, None
         else:
             return False, "Continue with the first step of the plan that is not checked yet. And after verifing the step goal mark it as checked."
-
-# For backward compatibility, keep the old function as a reference to the class method
-continue_last_unchecked_strategy = ContinueLastUncheckedStrategy().next_turn
 
 
 class PlanWatcherStrategy(ChatEndStrategy):
@@ -93,7 +89,7 @@ async def spinner(text: str = ""):
         await task
 
 
-async def connect_mcps(agent: MCPAgent, retries = 3):
+async def connect_mcps(agent, retries = 3):
     logger.info(f"Connecting to {agent} MCP servers")
     logger.info(f"Connecting to {agent.name} MCP servers {agent.mcp_servers}")
 
@@ -148,9 +144,13 @@ JOBS: Dict[str, Job] = {}
 def get_done_jobs() -> Set[str]:
     return {job_id for job_id, job in JOBS.items() if job.status == 'done'}
 
+def get_job(job_id: str) -> Optional[Job]:
+    """Retrieve a job by its ID."""
+    return JOBS.get(job_id)
+
 async def submit_job(queue: "asyncio.Queue[Job]", agent, text, strategy_name, depends_on=None) -> str:
     """Helper to submit a job to the queue with dependencies. Returns the job_id."""
-    job_id = str(uuid.uuid4())
+    job_id = str(uuid.uuid4())[-6:] # Shortened job_id to last 6 characters
     job = Job(job_id=job_id, agent=agent, text=text, strategy_name=strategy_name, depends_on=depends_on or [], status='in_queue')
     JOBS[job_id] = job
     await queue.put(job)
@@ -170,7 +170,7 @@ async def autonomous_chat(agent, user_request: str, prompt_strategy_cls, agent_m
             try:
                 logger.info(f"Check {check} of {max_turns}")
                 if check == 1 and job_id is not None:
-                    turn_input = [{"role": "user", "content": f"Your JOB_ID is {job_id},. {user_request} {prompt_strategy.start_instruction}"}]
+                    turn_input = [{"role": "user", "content": f"Your JOB_ID is {job_id}.\n {user_request}. {prompt_strategy.start_instruction}"}]
                 else:
                     turn_input = [{"role": "user", "content": user_request}]
                 single_agent_run = await Runner.run(agent, input=history + turn_input, hooks=capture)
@@ -178,7 +178,7 @@ async def autonomous_chat(agent, user_request: str, prompt_strategy_cls, agent_m
                 logger.info("Trace URL:", f"https://platform.openai.com/traces/{tr.trace_id}")
                 history = single_agent_run.to_input_list()
                 # Update chat_history
-                chat_history_str += f"User: {user_request}\nAssistant: {getattr(single_agent_run.final_output, 'content', '')}\n"
+                chat_history_str += ".\n".join(map(lambda prompt: str(prompt), history))
                 if job_id and job_id in JOBS:
                     JOBS[job_id].chat_history = chat_history_str
                 end_agent_run, new_user_request = prompt_strategy.next_turn(single_agent_run.final_output, history, agent)
@@ -243,16 +243,11 @@ chat_strategy_map = {
         # Add more strategies here as needed
 }
 
-def get_chat_strategy(strategy_name: str) -> ChatEndStrategy:
+def get_chat_strategy(strategy_name: str) -> type[ChatEndStrategy]:
     strategy_cls = chat_strategy_map.get(strategy_name, ContinueLastUncheckedStrategy)
-    return strategy_cls()
+    return strategy_cls
 
 async def chat_worker(queue: "asyncio.Queue[Job]") -> None:
-    strategy_map = {
-        "default": ContinueLastUncheckedStrategy,
-        "plan_watcher": PlanWatcherStrategy,
-        # Add more strategies here as needed
-    }
     while True:
         job = await queue.get()
         # Check dependencies
@@ -268,7 +263,7 @@ async def chat_worker(queue: "asyncio.Queue[Job]") -> None:
             continue
         try:
             job.status = 'in_progress'
-            prompt_strategy_cls = strategy_map.get(job.strategy_name, ContinueLastUncheckedStrategy)
+            prompt_strategy_cls = chat_strategy_map.get(job.strategy_name, ContinueLastUncheckedStrategy)
             await autonomous_chat(job.agent, job.text, prompt_strategy_cls=prompt_strategy_cls, max_turns=30, job_id=job.job_id)
             job.status = 'done'
             logger.info(f"Job {job.job_id} completed. Status set to done.")

@@ -7,7 +7,7 @@ from agents.mcp import MCPServerStdio, MCPServerSse
 from agents import Agent, Runner, trace, enable_verbose_stdout_logging, RunHooks
 from typing import Any, List
 from one_prompt_agents.utils import uvicorn_log_level
-from one_prompt_agents.chat_patterns import submit_job
+from one_prompt_agents.chat_patterns import submit_job, get_job
 
 import logging
 logger = logging.getLogger(__name__) 
@@ -83,8 +83,8 @@ class MCPAgent(MCPServerSse):
         )
         self.mcp.add_tool(
             name=f"start_and_notify_when_done_{name}",
-            description=f"Starts the {name} agent and notifies when another job is done.",
-            fn=lambda inputs: self._start_and_notify(inputs)
+            description=f"Starts a new job for the agent {name} and marks it as notify you when done, with a callback message returned once finished. Don't wait for it's response as is async.",
+            fn=self._start_and_notify
         )
 
         # Start FastMCP SSE for other agents to call
@@ -97,26 +97,20 @@ class MCPAgent(MCPServerSse):
             )
         )
 
-    def _start(self, inputs) -> str:
+    async def _start(self, inputs) -> str:
         # Submit a job for this agent, no dependencies
-        job_id = asyncio.get_event_loop().run_until_complete(
-            submit_job(self.job_queue, self.agent, str(inputs), self.strategy_name)
-        )
+        job_id = await submit_job(self.job_queue, self.agent, str(inputs), self.strategy_name)
         return f'Agent is running. Job started: {job_id}'
 
-    def _start_and_notify(self, inputs) -> str:
+    async def _start_and_notify(self, inputs: str, notify_job_id: str, callback_prompt: str) -> str:
         # Expects inputs to be a dict with 'job_description' and 'notify_job_id'
-        job_description = inputs.get('job_description')
-        notify_job_id = inputs.get('notify_job_id')
+
         # Submit the first job (target agent)
-        first_job_id = asyncio.get_event_loop().run_until_complete(
-            submit_job(self.job_queue, self.agent, str(job_description), self.strategy_name)
-        )
+        first_job_id = await submit_job(self.job_queue, self.agent, inputs, self.strategy_name)
+        
+        notify_job = get_job(notify_job_id)
         # Submit the notification job, which depends on the first job
-        notify_description = inputs.get('notify_description', 'Notification job')
-        asyncio.get_event_loop().run_until_complete(
-            submit_job(self.job_queue, self.agent, str(notify_description), self.strategy_name, depends_on=[first_job_id])
-        )
+        await submit_job(self.job_queue, notify_job.agent, f"In this prior run, you requested to be notified when the job {first_job_id} was finished: \n Prior run: \n {notify_job.chat_history}. \n Now the job has finished: \n {callback_prompt}.", notify_job.strategy_name, depends_on=[first_job_id])
         return f'Job started: {first_job_id} and will notify you when finished.'
 
     async def end_and_cleanup(self):
