@@ -12,6 +12,21 @@ import logging
 logger = logging.getLogger(__name__) 
 
 class AgentConfig(BaseModel):
+    """Represents the configuration for an agent, loaded from a config.json file.
+
+    Attributes:
+        name (str): The unique name of the agent.
+        prompt_file (str): The filename of the prompt instructions within the agent's folder.
+        return_type (str): The name of the Pydantic class defining the agent's output structure.
+                           This class is expected to be in a `return_type.py` file in the agent's folder.
+        inputs_description (str): A description of the inputs the agent expects.
+        tools (List[str]): A list of names of other agents or static MCP servers this agent can use.
+        model (str | None): The language model to be used by the agent (e.g., "gpt-4-1106-preview").
+                            Defaults to None, which may result in a default model being used later.
+        strategy_name (str): The name of the chat strategy to use for this agent. Defaults to "default".
+        _path (Path): Private attribute storing the relative path to the agent's configuration folder.
+                      This is set during discovery.
+    """
     name: str
     prompt_file: str
     return_type: str
@@ -22,6 +37,18 @@ class AgentConfig(BaseModel):
     strategy_name: str = "default"
 
 def discover_configs(agents_dir: Path) -> Dict[str, AgentConfig]:
+    """Discovers agent configurations from subdirectories of `agents_dir`.
+
+    Each agent is expected to have its own folder containing a `config.json` file.
+    This function reads these JSON files, validates them against `AgentConfig`,
+    and stores the agent's folder path.
+
+    Args:
+        agents_dir (Path): The directory containing agent configuration folders.
+
+    Returns:
+        Dict[str, AgentConfig]: A dictionary mapping agent names to their configurations.
+    """
     configs = {}
     for folder in agents_dir.iterdir():
         cfg_path = folder / "config.json"
@@ -34,6 +61,20 @@ def discover_configs(agents_dir: Path) -> Dict[str, AgentConfig]:
     return configs
 
 def topo_sort(configs: Dict[str, AgentConfig]) -> List[str]:
+    """Performs a topological sort on agent configurations based on their tool dependencies.
+
+    This ensures that agents are loaded in an order where their dependencies (other agents
+    they use as tools) are loaded first.
+
+    Args:
+        configs (Dict[str, AgentConfig]): A dictionary of agent configurations.
+
+    Returns:
+        List[str]: A list of agent names in the order they should be loaded.
+
+    Raises:
+        ValueError: If a cyclic dependency between agents is detected.
+    """
     graph = defaultdict(list)
     for name, cfg in configs.items():
         for dep in cfg.tools:
@@ -55,7 +96,17 @@ def topo_sort(configs: Dict[str, AgentConfig]) -> List[str]:
     return order  # dependencies first
 
 def import_module_from_path(path: Path):
-    """Import a .py file as an opaque module object."""
+    """Dynamically imports a Python module from a given file path.
+
+    This is used to load the `return_type.py` file for each agent, which defines
+    the Pydantic model for the agent's output.
+
+    Args:
+        path (Path): The path to the Python file to import.
+
+    Returns:
+        module: The imported module object.
+    """
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module        # supports intra-module imports
@@ -63,6 +114,24 @@ def import_module_from_path(path: Path):
     return module
 
 def load_agents(configs, load_order, static_servers, job_queue):
+    """Loads and initializes all agents based on their configurations and load order.
+
+    For each agent, this function:
+    1. Locates its configuration and folder.
+    2. Dynamically imports its `return_type.py` to get the output Pydantic model.
+    3. Resolves its tool dependencies, linking to already loaded agents or static MCP servers.
+    4. Initializes an `MCPAgent` instance for it.
+
+    Args:
+        configs (Dict[str, AgentConfig]): Dictionary of all agent configurations.
+        load_order (List[str]): List of agent names in the correct loading order.
+        static_servers (Dict[str, Any]): Dictionary of pre-initialized static MCP servers
+                                         that agents can use as tools.
+        job_queue (asyncio.Queue): The job queue to be used by the loaded `MCPAgent` instances.
+
+    Returns:
+        Dict[str, MCPAgent]: A dictionary mapping agent names to their loaded `MCPAgent` instances.
+    """
     loaded = {}
     for name in load_order:
         cfg = configs[name]

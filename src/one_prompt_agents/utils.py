@@ -1,9 +1,24 @@
-
 import logging
 logger = logging.getLogger(__name__) 
 
 def uvicorn_log_level() -> str | None:
-    """Return the right string (or None) for uvicorn.log_level."""
+    """Determines the appropriate log level string for Uvicorn based on the current root logger settings.
+
+    This function checks the global logging configuration of the application.
+    If logging is completely disabled (e.g., `logging.disable(logging.CRITICAL)` has been called),
+    it returns `None`.
+    Otherwise, it gets the effective logging level of the root logger, converts it to a lowercase
+    string (e.g., "debug", "info"), and returns it if it's a Uvicorn-recognized level.
+    If the current level is not directly recognized by Uvicorn (e.g., custom levels), it defaults
+    to returning "warning".
+
+    This utility is useful for synchronizing Uvicorn's internal logging level with the
+    application's overall logging configuration, ensuring consistent log verbosity.
+
+    Returns:
+        str | None: A Uvicorn-compatible log level string (e.g., "debug", "info", "warning", "error", "critical", "trace"),
+                    or `None` if logging is globally disabled. Defaults to "warning" for unrecognized levels.
+    """
     root = logging.getLogger()
     if root.manager.disable >= logging.CRITICAL:
         return None                      # logging globally disabled

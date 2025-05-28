@@ -12,7 +12,7 @@ from pathlib import Path
 import importlib.util
 import inspect
 import sys
-from typing import Dict, Type, Any
+from typing import Dict, Type, Any, Tuple, List
 from agents.mcp import MCPServerStdio, MCPServerSse
 
 
@@ -23,14 +23,42 @@ TARGET_CLS: Type[Any] = MCPServerSse | MCPServerStdio      # import / define thi
 # ──────────────────────────────────────────────────────────────────────────
 
 def import_module_from_path(path: Path):
-    """Import a .py file as an opaque module object."""
+    """Dynamically imports a Python module from a given file path.
+
+    This utility function is used to load MCP server definition files.
+
+    Args:
+        path (Path): The absolute or relative path to the Python file.
+
+    Returns:
+        module: The imported module object.
+    """
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module        # supports intra-module imports
     spec.loader.exec_module(module)        # run the code
     return module
 
-def collect_servers():
+def collect_servers() -> Tuple[Dict[str, MCPServerSse | MCPServerStdio], List[Any]]:
+    """Discovers and collects MCP server instances from specified modules.
+
+    This function scans the `SEARCH_DIR` for Python files ending with `MODULE_SUFFIX`.
+    For each matching file, it:
+    1. Dynamically imports the module.
+    2. Inspects the module for top-level instances of `TARGET_CLS` (MCPServerSse or MCPServerStdio).
+       These instances are collected into a dictionary keyed by their `name` attribute.
+    3. If the module defines a callable `main()` function, it is executed. Any task returned
+       by `main()` (presumably an asyncio.Task for running the server) is collected.
+
+    This allows for a plugin-like architecture where MCP servers can be defined in separate
+    files and automatically discovered and loaded.
+
+    Returns:
+        Tuple[Dict[str, MCPServerSse | MCPServerStdio], List[Any]]:
+            A tuple containing:
+            - A dictionary mapping server names to their `MCPServerSse` or `MCPServerStdio` instances.
+            - A list of asyncio tasks returned by the `main()` functions of the discovered server modules.
+    """
     servers: Dict[str, MCPServerSse | MCPServerStdio] = {}
     tasks_list = []
 
