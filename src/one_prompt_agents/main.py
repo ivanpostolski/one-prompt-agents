@@ -11,9 +11,11 @@ To ensure compatibility with entry points expecting a `main` function (e.g.,
 from pyproject.toml scripts), `main_cli` is also aliased as `main` here.
 """
 
-from one_prompt_agents.cli import main_cli
+from one_prompt_agents.cli import main_cli, run_server_cli
 
 main = main_cli # Alias main_cli as main for external script compatibility
+
+run_server = run_server_cli
 
 if __name__ == "__main__":
     main_cli() # Or just main(), since they are the same now
