@@ -76,7 +76,7 @@ async def run_agent_endpoint(agent_name: str, req: RunRequest):
 
     try:
         # fire-and-forget
-        start_agent(agent_instance, req.prompt)
+        await start_agent(agent_instance, req.prompt)
         logger.info(f"Successfully started agent {agent_name}")
         return {"status": "started", "agent": agent_name}
     except Exception as e:

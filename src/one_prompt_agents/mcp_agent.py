@@ -100,12 +100,6 @@ class MCPAgent(MCPServerSse):
             description=f"Starts the {name} agent async. No wait for it's response.",
             fn=lambda inputs: self._start(inputs)
         )
-        # self.mcp.add_tool(
-        #     name=f"start_and_notify_when_done_{name}",
-        #     description=f"Starts a new job for the agent {name} and marks it as notify you when done, with a callback message returned once finished. Don't wait for it's response as is async.",
-        #     fn=self._start_and_notify
-        # )
-
         self.mcp.add_tool(
             name=f"_start_and_wait_{name}",
             description=f"Starts a new job for the agent {name} and waits until it's finished.",
@@ -139,33 +133,6 @@ class MCPAgent(MCPServerSse):
         job_id = await submit_job(self.job_queue, self.agent, str(inputs), self.strategy_name)
         return f'Agent is running. Job started: {job_id}'
 
-    async def _start_and_notify(self, inputs: str, notify_job_id: str, callback_prompt: str) -> str:
-        """Starts a job for this agent and a subsequent notification job upon its completion.
-
-        This method is intended to be exposed as an MCP tool.
-        It first submits the primary job for the current MCPAgent. Then, it submits
-        a second job (the notification job) that depends on the first one. This
-        notification job will use the agent associated with `notify_job_id` to deliver
-        the `callback_prompt` once the primary job is done.
-
-        Args:
-            inputs (str): The input/prompt for the primary job of this MCPAgent.
-            notify_job_id (str): The ID of the job whose agent will be used for notification.
-            callback_prompt (str): The prompt/message to be sent by the notification agent.
-
-        Returns:
-            str: A message confirming the job has started and notification is set up.
-        """
-        # Expects inputs to be a dict with 'job_description' and 'notify_job_id'
-
-        # Submit the first job (target agent)
-        first_job_id = await submit_job(self.job_queue, self.agent, inputs, self.strategy_name)
-        
-        notify_job = get_job(notify_job_id)
-        # Submit the notification job, which depends on the first job
-        await submit_job(self.job_queue, notify_job.agent, f"In this prior run, you requested to be notified when the job {first_job_id} was finished: \n Prior run: \n {notify_job.chat_history}. \n Now the job has finished: \n {callback_prompt}.", notify_job.strategy_name, depends_on=[first_job_id])
-        return f'Job started: {first_job_id} and will notify you when finished.'
-    
 
     async def _start_and_wait(self, agent_inputs: str, your_job_id: str) -> str:
         """Starts a job for this agent and makes the calling agent's job wait for its completion.
@@ -216,12 +183,11 @@ class MCPAgent(MCPServerSse):
         # cleanup SSE client
         await asyncio.gather(self.cleanup())
 
-def start_agent(mcp_agent: MCPAgent, inputs, strategy_name=None):
+async def start_agent(mcp_agent: MCPAgent, inputs, strategy_name=None):
     """Submits a job to the specified MCPAgent's job queue.
 
-    This is a utility function to trigger an agent run from outside the asyncio event loop
-    managed by the main application (e.g., from a synchronous HTTP endpoint handler
-    or a simple script).
+    This is a utility function to trigger an agent run. It should be called
+    from an async context.
 
     Args:
         mcp_agent (MCPAgent): The MCPAgent instance to run.
@@ -230,6 +196,4 @@ def start_agent(mcp_agent: MCPAgent, inputs, strategy_name=None):
             If None, uses the `mcp_agent.strategy_name` or defaults to "default".
     """
     # Submit a job for this agent, no dependencies
-    asyncio.get_event_loop().run_until_complete(
-        submit_job(mcp_agent.job_queue, mcp_agent.agent, str(inputs), strategy_name or getattr(mcp_agent, 'strategy_name', 'default'))
-    )
+    await submit_job(mcp_agent.job_queue, mcp_agent.agent, str(inputs), strategy_name or getattr(mcp_agent, 'strategy_name', 'default'))
