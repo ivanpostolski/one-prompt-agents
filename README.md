@@ -89,6 +89,14 @@ Inside each agent's directory (e.g., `AgentName1`), you'll find:
     pip install -r requirements.txt
     ```
 
+### Development and Testing Setup
+
+If you plan to contribute to development or run tests, you'll need to install the development dependencies:
+
+```bash
+pip install -r dev-requirements.txt
+```
+
 ## Creating Your First Agent: An "EchoAgent" Example
 
 Let's illustrate how simple it is to create an agent. We'll make an "EchoAgent" that simply returns the prompt it receives.
@@ -255,6 +263,23 @@ Instead of directly trying to solve the entire task with a single response, the 
 *   **Flexibility**: Allows for iterative execution and potential plan adjustments if needed.
 
 This "make a plan" strategy is particularly effective for autonomous agents designed to perform multi-stage operations. For interactive agents, the core idea of returning a structured response (like the `content` field in the EchoAgent) remains the primary mode of simple interaction, but more complex interactive agents could also adopt planning for guided task completion.
+
+## Running Tests
+
+This project uses `pytest` for running automated tests. Tests are located in the `tests/` directory.
+
+To run the tests, ensure you have installed the development dependencies (see the 'Development and Testing Setup' subsection under 'Installation'). Then, execute the following command from the root of the project:
+
+```bash
+python -m pytest
+```
+
+Alternatively, you can often just run:
+
+```bash
+pytest
+```
+However, using `python -m pytest` is recommended for consistency, especially when working with virtual environments.
 
 ## Logging
 
