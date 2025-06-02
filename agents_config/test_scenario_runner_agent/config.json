@@ -1,0 +1,9 @@
+{
+    "name": "TestScenarioRunnerAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "TestScenarioRunnerPlan",
+    "inputs_description": "No input required; this agent autonomously fetches and runs test scenarios.",
+    "tools": ["test_echo_agent", "testing_mcp_server", "job-status-mcp"],
+    "model": "gpt-4.1",
+    "strategy_name": "plan_watcher"
+} 

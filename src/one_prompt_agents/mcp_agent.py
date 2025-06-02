@@ -102,8 +102,13 @@ class MCPAgent(MCPServerSse):
         )
         self.mcp.add_tool(
             name=f"_start_and_wait_{name}",
-            description=f"Starts a new job for the agent {name} and waits until it's finished.",
+            description=f"Starts a new job for the agent {name} and waits until it\'s finished.",
             fn=self._start_and_wait
+        )
+        self.mcp.add_tool(
+            name=f"get_agent_info_{name}",
+            description=f"This method returns further information about the agent {self.agent.name}. This agent description: {self.inputs_description}",
+            fn=self._get_agent_info
         )
 
 
@@ -167,9 +172,22 @@ class MCPAgent(MCPServerSse):
             # put the waiter back in the job queue
             await self.job_queue.put(waiter)
 
-        return f"Job {job_id} has been started. To wait for it's completion return your plan."
+        return f"Job {job_id} has been started. To wait for it\'s completion return your plan."
 
+    def _get_agent_info(self) -> dict:
+        """Returns information about the agent.
 
+        This is exposed as an MCP tool: `get_agent_info`.
+
+        Returns:
+            dict: A dictionary containing the agent's name, prompt, model, and prompt strategy.
+        """
+        return {
+            'AgentName': self.agent.name,
+            'Prompt': self.agent.instructions,
+            'Model': self.agent.model,
+            'PromptStrategy': self.strategy_name
+        }
 
     async def end_and_cleanup(self):
         """Shuts down the MCPAgent's FastMCP server and cleans up SSE client resources.

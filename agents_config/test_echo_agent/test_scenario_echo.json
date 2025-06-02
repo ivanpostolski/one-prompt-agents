@@ -1,0 +1,24 @@
+{
+  "scenario_id": "echo_test_001",
+  "name": "Echo Agent Basic Test (Start and Wait)",
+  "description": "Tests if the Echo Agent correctly echoes a given message.",
+  "steps": [
+    "The TestScenarioRunnerAgent will start and wait for the test_echo_agent to echo the message 'Hello, world!'."
+  ],
+  "acceptance_criteria": [
+    "test_echo_agent job is started successfully.",
+    "test_echo_agent job is completed successfully.",
+    "test_echo_agent job output has the expected response 'Hello, world!'.",
+    "the interaction between the test_echo_agent and the TestScenarioRunnerAgent is as expected."
+  ],
+  "required_agents": [
+    {
+      "agent_name": "test_echo_agent",
+      "tool_to_call": "echo",
+      "inputs": {
+        "message": "Hello, world!"
+      },
+      "expected_output": "Hello, world!"
+    }
+  ]
+} 

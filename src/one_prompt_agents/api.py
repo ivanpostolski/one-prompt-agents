@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from one_prompt_agents.mcp_agent import start_agent
 import logging
+import os
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,35 @@ async def root():
         dict: A dictionary with a "message" key.
     """
     return {"message": "Server is running"}
+
+@app.post("/shutdown")
+async def shutdown_server():
+    """Handles POST requests to shutdown the server.
+
+    This endpoint triggers a graceful shutdown of the FastAPI server.
+    It should be used with caution as it will terminate the entire application.
+
+    Returns:
+        dict: A dictionary confirming the shutdown has been initiated.
+    """
+    logger.info("Shutdown endpoint called. Initiating server shutdown...")
+    
+    # Return response before shutting down
+    response = {"message": "Server shutdown initiated"}
+    
+    # Schedule the shutdown to happen after the response is sent
+    
+    asyncio.create_task(_delayed_shutdown())
+    
+    return response
+
+async def _delayed_shutdown():
+    """Helper function to delay shutdown until after the response is sent."""
+    # Wait a brief moment to ensure the response is sent
+    await asyncio.sleep(0.1)
+    logger.info("Shutting down server via shutdown endpoint...")
+    # Exit the process to trigger graceful shutdown
+    os._exit(0)
 
 @app.post("/{agent_name}/run")
 async def run_agent_endpoint(agent_name: str, req: RunRequest):

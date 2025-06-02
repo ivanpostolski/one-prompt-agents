@@ -1,4 +1,7 @@
 import logging
+import requests
+import sys
+
 logger = logging.getLogger(__name__) 
 
 def uvicorn_log_level() -> str | None:
@@ -25,3 +28,33 @@ def uvicorn_log_level() -> str | None:
 
     name = logging.getLevelName(root.getEffectiveLevel()).lower()
     return name if name in {"critical","error","warning","info","debug","trace"} else "warning"
+
+def shutdown_server_command():
+    """Command-line utility to shutdown the FastAPI server.
+    
+    This function sends a POST request to the /shutdown endpoint of the running server.
+    It's designed to be used as a console script entry point.
+    """
+    server_url = "http://127.0.0.1:9000/shutdown"
+    
+    try:
+        print("Sending shutdown request to server...")
+        response = requests.post(server_url, timeout=5)
+        response.raise_for_status()
+        
+        result = response.json()
+        print(f"✓ {result.get('message', 'Shutdown initiated')}")
+        print("Server should shut down shortly.")
+        
+    except requests.exceptions.ConnectionError:
+        print("✗ Error: Could not connect to server. Is it running on http://127.0.0.1:9000?")
+        sys.exit(1)
+    except requests.exceptions.Timeout:
+        print("✗ Error: Request timed out. Server may already be shutting down.")
+        sys.exit(1)
+    except requests.exceptions.HTTPError as e:
+        print(f"✗ Error: Server returned an error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"✗ Unexpected error: {e}")
+        sys.exit(1)

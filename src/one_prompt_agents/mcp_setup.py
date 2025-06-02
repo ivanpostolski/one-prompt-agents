@@ -84,10 +84,19 @@ def get_job_mcp_tool(job_id: str):
     else:
         return f"{job.job_id}: {job.status}"
 
+
+def get_job_mcp_tool_details(job_id: str):
+    """Retrieves all details of a job from the job queue for MCP."""
+    if job_id not in JOBS:
+        return f"Job with ID '{job_id}' not found."
+    
+    job = JOBS.get(job_id)
+    return job
+
 mcp.add_tool(
     name="get_job_details", # Renamed for clarity to avoid conflict with chat_patterns.get_job
     description="Get the status and summary of a specific job by its ID.",
-    fn=get_job_mcp_tool
+    fn=get_job_mcp_tool_details
 )
 
 # Add an alias for compatibility with agents expecting "get_job"

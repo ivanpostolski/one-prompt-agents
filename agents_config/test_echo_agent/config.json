@@ -1,0 +1,8 @@
+{
+    "name": "test_echo_agent",
+    "prompt_file": "prompt.md",
+    "return_type": "EchoResponse",
+    "inputs_description": "A message to echo.",
+    "tools": [],
+    "model": "gpt-4.1"
+} 

@@ -76,7 +76,11 @@ def topo_sort(configs: Dict[str, AgentConfig]) -> List[str]:
         ValueError: If a cyclic dependency between agents is detected.
     """
     graph = defaultdict(list)
+    wildcard_agents = []
     for name, cfg in configs.items():
+        if "*" in cfg.tools:
+            wildcard_agents.append(name)
+            continue
         for dep in cfg.tools:
             if dep in configs:
                 graph[dep].append(name)
@@ -90,10 +94,14 @@ def topo_sort(configs: Dict[str, AgentConfig]) -> List[str]:
                 dfs(nei)
             temp.remove(node); visited.add(node); order.append(node)
     for node in configs:
-        dfs(node)
+        if node not in wildcard_agents:
+            dfs(node)
     order.reverse()  # reverse to get the correct order
-    logger.info(f"Load order: {order}")
-    return order  # dependencies first
+    logger.info(f"Load order (pre-wildcard): {order}")
+    # Add wildcard agents at the end
+    order += wildcard_agents
+    logger.info(f"Final load order (wildcard last): {order}")
+    return order  # dependencies first, wildcard agents last
 
 def import_module_from_path(path: Path):
     """Dynamically imports a Python module from a given file path.
@@ -142,6 +150,12 @@ def load_agents(configs, load_order, static_servers, job_queue):
         # load return_type model
         mod = import_module_from_path(return_type)
         ReturnType = getattr(mod, cfg.return_type)
+
+        # wildcard support for tools
+        if "*" in cfg.tools:
+            # All other agent names except self, plus all static server names
+            all_tools = [n for n in configs if n != name] + list(static_servers.keys())
+            cfg.tools = all_tools
 
         # resolve tool list: either static or other agents
         tools = []

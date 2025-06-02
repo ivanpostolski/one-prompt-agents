@@ -3,7 +3,7 @@ name = "one-prompt-agents"
 version = "0.0.1"
 description = "A small Framework built on top of openai agents sdk to develop one prompt autonomous agents"
 authors = [{ name = "Ivan Postolski", email = "ivan.postolski@gmail.com" }]
-dependencies = ["uvicorn==0.34.2", "pydantic==2.11.4", "fastmcp==2.3.4", "openai-agents==0.0.14", "fastapi==0.115.12"]
+dependencies = ["uvicorn==0.34.2", "pydantic==2.11.4", "fastmcp==2.3.4", "openai-agents==0.0.14", "fastapi==0.115.12", "requests"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -12,6 +12,7 @@ build-backend = "setuptools.build_meta"
 [project.scripts]
 run_agent = "one_prompt_agents.main:main"
 run_server = "one_prompt_agents.main:run_server"
+shutdown_server = "one_prompt_agents.utils:shutdown_server_command"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

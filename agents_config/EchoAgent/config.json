@@ -1,8 +1,8 @@
 {
     "name": "EchoAgent",
-    "prompt_file": "prompt.txt",
+    "prompt_file": "prompt.md",
     "return_type": "EchoResponse",
     "inputs_description": "Any text prompt that the agent will echo back in the 'content' field.",
-    "tools": [],
+    "tools": ["testing_mcp_server"],
     "model": "o4-mini"
 }

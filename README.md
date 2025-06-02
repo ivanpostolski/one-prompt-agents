@@ -288,3 +288,70 @@ This is configured in an agent's `config.json` file using the `tools` field:
 In this example, `MyMainAgent` would have access to `AnotherAgentName` (which must also be defined in the `agents_config` directory) and `SomeMCPTool` (which should be a pre-configured MCP server known to the system). The prompt for `MyMainAgent` would then instruct it on how and when to use these tools.
 
 The framework handles the resolution and communication with these declared tools.
+
+## Extending with Custom MCP Servers
+
+Beyond using other agents as tools, the framework supports the integration of custom MCP (Multi-Capability Agent Protocol) servers. This allows you to connect specialized, independently running services or capabilities that adhere to the MCP standard. The `mcp_servers_loader.py` module is responsible for discovering and loading these custom MCP servers.
+
+### How it Works
+
+1.  **Directory for MCP Servers**:
+    *   Create a directory in your project, conventionally named `mcp_servers/` (this is configurable via `SEARCH_DIR` in `mcp_servers_loader.py`). This directory will house your custom MCP server definitions.
+
+2.  **MCP Server Definition Files**:
+    *   Inside the `mcp_servers/` directory, create Python files for each of your custom MCP servers.
+    *   These files must have a specific suffix, by default `_mcp_server.py` (configurable via `MODULE_SUFFIX` in `mcp_servers_loader.py`). For example, `my_custom_tool_mcp_server.py`.
+
+3.  **Defining MCP Server Instances**:
+    *   Within each such Python file, define one or more module-level instances of `MCPServerSse` or `MCPServerStdio` (from `agents.mcp`). These are the classes that represent your MCP server's client-side interface.
+    *   Each instance must have a unique `name` attribute. This name is how agents will refer to this MCP server in their `tools` list in `config.json`.
+
+    Example `mcp_servers/apify_example_mcp_server.py`:
+    ```python
+    import os
+    import sys
+    from pathlib import Path
+    from agents.mcp import MCPServerStdio, MCPServerSse
+    from types import MethodType
+
+    # --- NEW: Apify SSE server ---
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN")
+    if not APIFY_TOKEN:
+        sys.exit("❌  export APIFY_TOKEN first")
+
+    apify_server = MCPServerSse(
+        params={
+            "url": f"https://actors-mcp-server.apify.actor/sse?enableAddingActors=true", #
+            "headers": {
+                "Authorization": f"Bearer {APIFY_TOKEN}",
+                # Apify also accepts this custom header, either is fine:
+                # "x-apify-token": APIFY_TOKEN,
+            },
+            "timeout": 180,
+            "sse_read_timeout": 300,
+        },
+        client_session_timeout_seconds=60,
+        cache_tools_list=True,
+        name="apify-mcp-server",
+    )
+
+    ```
+
+4.  **Automatic Discovery and Loading**:
+    *   When the main application starts (via `cli.py`), the `collect_servers()` function from `mcp_servers_loader.py` is invoked.
+    *   It scans the `SEARCH_DIR` (e.g., `mcp_servers/`) for files ending with `MODULE_SUFFIX` (e.g., `_mcp_server.py`).
+    *   It dynamically imports these modules.
+    *   It collects all top-level instances of `MCPServerSse` or `MCPServerStdio` found in these modules. These are made available to agents that list them in their `tools`.
+    *   If a module defines a callable `main()` function at the top level, it is executed. Any `asyncio.Task` returned by `main()` will be collected and managed by the main application loop, allowing your MCP server to run its own asynchronous operations if needed (e.g., starting the actual server-side component that the `MCPServerSse` instance connects to).
+
+### Key Expectations and Features
+
+*   **Naming**: The `name` attribute of your `MCPServerSse` or `MCPServerStdio` instance is crucial. It's the identifier used in an agent's `config.json` `tools` array.
+*   **Configuration (`params`)**: The `params` dictionary passed to the `MCPServerSse` or `MCPServerStdio` constructor should contain all necessary information for the client to connect to and interact with your actual MCP server (e.g., URL, timeouts).
+*   **Server-Side Logic (Optional `main()` hook)**:
+    *   The `MCPServerSse`/`MCPServerStdio` instances you define are *clients* that enable agents to talk to your MCP-compliant service.
+    *   If the actual service (the server part of your MCP tool) needs to be started or managed by the One-Prompt Agents framework itself, you can implement this logic within the optional `main()` function in your `*_mcp_server.py` file.
+    *   For example, `main()` could start a local FastAPI/Uvicorn server that implements the MCP tool's functionality, and the `MCPServerSse` instance would point to this local server's URL.
+*   **Agent Integration**: Once an MCP server is loaded, any agent can list its `name` in its `tools` array (in its `config.json`). The framework will then inject this pre-configured `MCPServerSse` or `MCPServerStdio` instance into the agent, allowing the agent's prompt to delegate tasks to it.
+
+This mechanism provides a flexible way to extend the capabilities of your agents by integrating with external or custom-built MCP-compliant tools and services.
