@@ -1,0 +1,8 @@
+{
+    "name": "GreeterAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "GreetingResponse",
+    "inputs_description": "A name to greet.",
+    "tools": [],
+    "model": "o4-mini"
+}
