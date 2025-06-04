@@ -17,6 +17,8 @@ This module orchestrates the entire application lifecycle:
 """
 import argparse
 import asyncio
+import os
+import sys
 import signal
 import uvicorn
 import logging
@@ -76,6 +78,10 @@ def main_cli():
 
     args = parser.parse_args()
 
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        print("Error: The OPENAI_API_KEY environment variable is not set. Please set it before running the application.", file=sys.stderr)
+        sys.exit(1)
     if not args.log_level:
         print('Logging disabled')
         logging.disable(logging.CRITICAL)

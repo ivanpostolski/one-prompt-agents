@@ -70,6 +70,16 @@ Inside each agent's directory (e.g., `AgentName1`), you'll find:
 *   **pip**: Python package installer (usually comes with Python).
 *   **git**: For cloning the repository.
 
+### API Keys
+
+This application interacts with OpenAI services and requires an `OPENAI_API_KEY` environment variable to be set.
+Please ensure you have this environment variable configured with your valid OpenAI API key before running the application.
+For example:
+```bash
+export OPENAI_API_KEY='your_openai_api_key_here'
+```
+The application will not function correctly without this key.
+
 ## Installation
 
 1.  **Clone the repository:**
