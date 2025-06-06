@@ -2,21 +2,34 @@
 This file is responsible for setting up and managing the main FastMCP (Multi-Context Platform)
 server instance for the one-prompt-agents system.
 
-It defines the MCP server, its tools (like changing an agent's model or getting job details),
-and the function to start this server. The agent registry used by MCP tools is populated
-by the main CLI module.
+It defines the main MCP server and its system-level tools, which are available to all agents
+that have this server in their `mcp_servers` configuration.
+
+Key System-Level Tools Provided:
+- `get_job_details`: Retrieves the full state and summary of a specified job.
+- `wait_for_jobs`: Allows a running agent to pause its own execution and wait for a list
+  of other jobs to complete before it resumes. This is crucial for orchestrating
+  complex workflows, such as parallel job execution followed by a final aggregation step.
+
+The agent registry and job queue used by these tools are populated by the main CLI module
+during application startup.
 """
 import os
 import asyncio
 import logging
+from typing import Dict, List, TYPE_CHECKING
 from fastmcp import FastMCP
-from one_prompt_agents.job_manager import JOBS # JOBS is defined in job_manager.py
+from one_prompt_agents.job_manager import JOBS, get_job
+from one_prompt_agents.utils import uvicorn_log_level
+
+if TYPE_CHECKING:
+    from one_prompt_agents.mcp_agent import MCPAgent
 
 logger = logging.getLogger(__name__)
 
-# This agents dictionary will need to be populated by the main application logic (cli.py)
-# similar to how it's done for api.py. This is crucial for change_agent_model.
-agents = {}
+# This will hold the loaded agents, populated by cli.py
+AGENTS_REGISTRY: Dict[str, "MCPAgent"] = {}
+JOB_QUEUE: asyncio.Queue = None
 
 MAIN_MCP_PORT = os.getenv("MAIN_MCP_PORT", 22222)
 
@@ -24,43 +37,6 @@ mcp = FastMCP(
     name="one-prompt-agent-mcp",
     version="0.2.0",
     description="Main MCP for the One-Prompt Agents framework, offering agent and job management tools.",
-)
-
-def change_agent_model(inputs):
-    """Changes the model of a specified agent.
-
-    This function is exposed as an MCP tool. It allows changing the
-    underlying model of an agent at runtime.
-
-    Args:
-        inputs (dict): A dictionary containing "agent_name" and "new_model".
-
-    Raises:
-        ValueError: If the agent is not found or new_model is not provided.
-
-    Returns:
-        str: A confirmation message.
-    """
-    agent_name = inputs.get("agent_name")
-    new_model = inputs.get("new_model")
-    if agent_name not in agents:
-        raise ValueError(f"Agent {agent_name} not found. Available: {list(agents.keys())}")
-    if new_model is None:
-        raise ValueError("New model not provided.")
-    
-    agent_instance = agents.get(agent_name)
-    if not agent_instance or not hasattr(agent_instance, 'agent'):
-        raise ValueError(f"MCPAgent instance for {agent_name} is invalid or does not have an 'agent' attribute.")
-
-    # Change the model of the agent
-    agent_instance.agent.model = new_model
-    logger.info(f"Model of agent {agent_name} changed to {new_model}.")
-    return f"Model of agent {agent_name} changed to {new_model}."
-
-mcp.add_tool(
-    name="change_agent_model",
-    description="Changes the model of a specified agent at runtime.",
-    fn=change_agent_model # Direct reference, lambda was not strictly necessary
 )
 
 def get_job_mcp_tool(job_id: str):
@@ -134,6 +110,53 @@ def start_mcp_server():
 
 # Placeholder for agents global, to be populated by the main CLI module
 def set_agents_for_mcp_setup(loaded_agents: dict):
-    global agents
-    agents.update(loaded_agents)
-    logger.info(f"MCP_setup module updated with agents: {list(agents.keys())}") 
+    global AGENTS_REGISTRY
+    AGENTS_REGISTRY.update(loaded_agents)
+    logger.info(f"MCP_setup module updated with agents: {list(AGENTS_REGISTRY.keys())}") 
+
+def set_job_queue_for_mcp_setup(job_queue: asyncio.Queue):
+    """Receives the global job queue from the main CLI module and adds queue-dependent tools."""
+    global JOB_QUEUE
+    JOB_QUEUE = job_queue
+    mcp.add_tool(
+        name="wait_for_jobs",
+        description="Makes the calling agent's job wait for a list of other jobs to complete.",
+        fn=wait_for_jobs
+    )
+
+def list_agents_sync() -> Dict[str, str]:
+    """Synchronous wrapper to list agents. The tool function for FastMCP must be sync."""
+    return {name: agent.url for name, agent in AGENTS_REGISTRY.items()}
+
+async def wait_for_jobs(your_job_id: str, job_ids_to_wait_for: List[str]) -> str:
+    """Makes the calling agent's job wait for a list of other jobs to complete.
+
+    This is a system-level MCP tool. It finds the job specified by `your_job_id`,
+    appends the `job_ids_to_wait_for` to its `depends_on` list, sets its
+    status to 'in_queue', and puts it back on the job queue to wait.
+
+    Args:
+        your_job_id (str): The job ID of the agent that is calling this tool and needs to wait.
+        job_ids_to_wait_for (List[str]): A list of job IDs to wait for.
+
+    Returns:
+        str: A message indicating that the job is now waiting for the specified jobs.
+                Returns an error message if `your_job_id` is not found.
+    """
+    if not JOB_QUEUE:
+        return "Error: The system's job queue is not available to the MCP server."
+
+    waiter = get_job(your_job_id)
+
+    if not waiter:
+        return f"Job {your_job_id} not found. You must provide your own job id to wait for other jobs."
+
+    # Add the new dependencies
+    waiter.depends_on.extend(job_ids_to_wait_for)
+    
+    # Reset status and requeue
+    waiter.status = 'in_queue'
+    waiter.chat_history += f"Now waiting for jobs: {', '.join(job_ids_to_wait_for)}.\n"
+    await JOB_QUEUE.put(waiter)
+
+    return f"Your job ({your_job_id}) is now in queue, waiting for jobs {', '.join(job_ids_to_wait_for)} to complete."

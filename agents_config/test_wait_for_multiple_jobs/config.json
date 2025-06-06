@@ -1,0 +1,8 @@
+{
+    "name": "test_wait_for_multiple_jobs",
+    "prompt_file": "prompt.txt",
+    "return_type": "JobTestResult",
+    "inputs_description": "JobTestResult.",
+    "tools": ["wait_for_jobs_mcp_proxy", "EchoAgent"],
+    "model": "o4-mini"
+}

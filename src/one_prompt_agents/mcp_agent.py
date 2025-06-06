@@ -25,15 +25,24 @@ class MCPAgent(MCPServerSse):
     server. It allows other agents or systems to interact with this agent via SSE.
     It manages a job queue for processing requests and can interact with other MCP servers.
 
+    Each MCPAgent instance holds two underlying `agents.Agent` instances:
+    1.  `agent`: The primary agent used for autonomous runs, configured with the specific
+        `return_type` defined in its configuration.
+    2.  `interactive_agent`: A secondary agent created specifically for interactive REPL
+        sessions. This agent always uses a fixed `InteractiveReply` Pydantic model
+        (with an `assistant_reply: str` field), ensuring a consistent output format
+        for direct user chats.
+
     Attributes:
         url (str): The SSE URL where this MCPAgent is listening.
         job_queue (asyncio.Queue): The queue used to submit jobs to this agent.
         mcp_servers (List[Any]): A list of other MCP servers this agent can interact with.
         prompt_file (str): Path to the file containing the agent's instructions.
-        return_type (Any): The expected Pydantic model or type for the agent's output.
+        return_type (Any): The expected Pydantic model or type for the main agent's output.
         inputs_description (str): A description of the inputs this agent expects.
-        strategy_name (str): The name of the chat strategy to use for jobs processed by this agent.
-        agent (Agent): The underlying `agents.Agent` instance.
+        strategy_name (str): The name of the chat strategy for jobs processed by this agent.
+        agent (Agent): The underlying `agents.Agent` instance for autonomous operation.
+        interactive_agent (Agent): The agent instance for interactive REPL sessions.
         mcp (FastMCP): The `FastMCP` server instance that exposes this agent as tools.
         mcp_task (asyncio.Task): The asyncio task running the `FastMCP` server.
     """

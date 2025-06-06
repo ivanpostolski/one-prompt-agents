@@ -34,7 +34,7 @@ from one_prompt_agents.utils import uvicorn_log_level
 
 # Import the new modules
 from one_prompt_agents.api import app as fastapi_app, set_agents_for_api
-from one_prompt_agents.mcp_setup import mcp as main_mcp, start_mcp_server, set_agents_for_mcp_setup
+from one_prompt_agents.mcp_setup import mcp as main_mcp, start_mcp_server, set_agents_for_mcp_setup, set_job_queue_for_mcp_setup
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +110,9 @@ def main_cli():
     job_queue = asyncio.Queue()
     worker_tasks = [loop.create_task(chat_worker(job_queue)) for _ in range(NUM_WORKERS)]
     logger.info(f"Started {NUM_WORKERS} chat workers.")
+
+    # Pass the job queue to the mcp_setup module so it can add queue-dependent tools
+    set_job_queue_for_mcp_setup(job_queue)
 
     server_task = None # Initialize server_task
     server_instance = None # Initialize server_instance
@@ -231,104 +234,67 @@ def main_cli():
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
     finally:
         logger.info("Initiating graceful shutdown...")
-        
-        # Shutdown Uvicorn server if it was started
-        if server_task and server_instance and server_instance.started:
-            logger.info("Shutting down Uvicorn HTTP server...")
-            if loop.is_running():
-                async def shutdown_server():
+
+        async def shutdown_async():
+            """Gathers and runs all async cleanup tasks concurrently."""
+            logger.info("--- Starting Async Shutdown Sequence ---")
+
+            # 1. Shutdown Uvicorn HTTP server if it was started
+            if server_task and server_instance and server_instance.started:
+                logger.info("Shutting down main Uvicorn HTTP server...")
+                try:
                     await server_instance.shutdown()
-                loop.run_until_complete(shutdown_server())
-            # server_task.cancel() # server.shutdown() should handle this
-            # try:
-            #     if loop.is_running():
-            #         loop.run_until_complete(asyncio.gather(server_task, return_exceptions=True))
-            # except asyncio.CancelledError:
-            #     logger.info("Uvicorn server task gathering was cancelled, this is expected during shutdown.")
-            # except RuntimeError as e: # Handle cases where loop might be closed
-            #     logger.warning(f"RuntimeError during Uvicorn server task gather: {e}")
-
-            logger.info("Uvicorn HTTP server shut down.")
-        elif server_task and not server_task.done(): # If task was created but server not fully started/already stopped
-             server_task.cancel()
-
-        # Shutdown agents
-        logger.info(f"Shutting down agents: {list(AGENTS_REGISTRY.keys())}")
-        for agent_instance in AGENTS_REGISTRY.values():
-            if hasattr(agent_instance, 'end_and_cleanup'):
-                try:
-                    loop.run_until_complete(agent_instance.end_and_cleanup())
+                    logger.info("Main Uvicorn HTTP server shut down.")
                 except Exception as e:
-                    logger.error(f"Error during agent {agent_instance.name} cleanup: {e}", exc_info=True)
-        logger.info(f"Agents shut down.")
+                    logger.error(f"Error shutting down Uvicorn: {e}", exc_info=True)
+            elif server_task and not server_task.done():
+                server_task.cancel()
 
-        # Shutdown external MCP servers
-        logger.info(f"Shutting down external MCP servers: {list(mcp_servers.keys())}")
-        for srv_name, srv_instance in mcp_servers.items():
-            if hasattr(srv_instance, 'cleanup'): # Assuming MCPServerSse/Stdio have cleanup
-                try:
-                    loop.run_until_complete(srv_instance.cleanup())
-                except Exception as e:
-                    logger.error(f"Error during MCP server {srv_name} cleanup: {e}", exc_info=True)
-        # Cancel associated tasks for external MCP servers (and the main_mcp_task)
-        logger.info(f"Cancelling {len(mcp_tasks)} MCP server tasks...")
-        for task in mcp_tasks:
-            if not task.done():
-                task.cancel()
-        try:
-            loop.run_until_complete(asyncio.gather(*mcp_tasks, return_exceptions=True))
-        except asyncio.CancelledError:
-            logger.info("MCP server tasks gathering was cancelled, this is expected during shutdown.")
-        except Exception as e:
-            logger.error(f"Error gathering MCP server tasks: {e}", exc_info=True)
-        logger.info(f"MCP servers shut down and tasks cancelled.")
-
-        # Shutdown chat workers
-        logger.info(f"Shutting down {len(worker_tasks)} chat workers...")
-        for worker_task in worker_tasks:
-            if not worker_task.done():
-                worker_task.cancel()
-        try:
-            loop.run_until_complete(asyncio.gather(*worker_tasks, return_exceptions=True))
-        except asyncio.CancelledError:
-            logger.info("Worker tasks gathering was cancelled, this is expected during shutdown.")
-        except Exception as e:
-            logger.error(f"Error gathering worker tasks: {e}", exc_info=True)
-        logger.info(f"All chat workers shut down.")
-        
-        # Close the loop only if it's still running
-        if loop.is_running():
-            loop.call_soon_threadsafe(loop.stop) # Request loop stop
-            # Allow some time for loop to stop gracefully by running tasks until completion
-            # Create a temporary future
-            # future = loop.create_future()
-            # loop.call_soon(future.set_result, None)
-            # loop.run_until_complete(future) # Ensure pending callbacks are processed
+            # 2. Gather all agent and external server cleanup coroutines
+            cleanup_coroutines = []
+            logger.info(f"Gathering cleanup tasks for agents: {list(AGENTS_REGISTRY.keys())}")
+            for agent in AGENTS_REGISTRY.values():
+                if hasattr(agent, 'end_and_cleanup'):
+                    cleanup_coroutines.append(agent.end_and_cleanup())
             
-        # Final check before closing loop
-        # Ensure all tasks are given a chance to finish after loop.stop() is called
-        # This can be tricky. loop.stop() only stops further scheduling of new callbacks.
-        # Pending tasks might still need to complete.
-        # A common pattern is to gather all remaining tasks, but that could be complex here.
-        # For now, trusting that cancellations and run_until_complete calls above handle most things.
+            logger.info(f"Gathering cleanup tasks for external MCP servers: {list(mcp_servers.keys())}")
+            for srv in mcp_servers.values():
+                if hasattr(srv, 'cleanup'):
+                    cleanup_coroutines.append(srv.cleanup())
+            
+            # Run all cleanup coroutines concurrently
+            if cleanup_coroutines:
+                logger.info(f"Executing {len(cleanup_coroutines)} cleanup coroutines...")
+                results = await asyncio.gather(*cleanup_coroutines, return_exceptions=True)
+                for res in results:
+                    if isinstance(res, Exception):
+                        logger.error(f"Error during async cleanup: {res}", exc_info=res)
+                logger.info("Agent and server cleanup coroutines finished.")
+
+            # 3. Cancel all remaining top-level tasks (workers, main MCP, etc.)
+            tasks_to_cancel = mcp_tasks + worker_tasks
+            logger.info(f"Cancelling {len(tasks_to_cancel)} background tasks...")
+            for task in tasks_to_cancel:
+                if not task.done():
+                    task.cancel()
+            
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            logger.info("Background tasks cancelled.")
+
+            # 4. Shutdown default executor for threads
+            logger.info("Shutting down default executor...")
+            await loop.shutdown_default_executor()
+            logger.info("Default executor shut down.")
+            logger.info("--- Async Shutdown Sequence Complete ---")
 
         if not loop.is_closed():
-            # Before closing, ensure loop has a chance to process stop()
-            # This is a bit of a guess, ensuring that stop() is processed
-            # loop.run_until_complete(asyncio.sleep(0.1)) # Small delay
-            # Now, actually run until complete any final tasks, then close.
-            # This can be tricky if shutdown tasks themselves add more tasks.
-            # A more robust approach might involve a dedicated shutdown sequence manager.
-            # For now, we'll rely on previous cancellations and server shutdown.
-            all_tasks = asyncio.all_tasks(loop)
-            remaining_tasks = [t for t in all_tasks if t is not asyncio.current_task(loop) and not t.done()]
-            if remaining_tasks:
-                logger.info(f"Waiting for {len(remaining_tasks)} remaining tasks to complete before closing loop...")
-                try:
-                    loop.run_until_complete(asyncio.gather(*remaining_tasks, return_exceptions=True))
-                except RuntimeError as e:
-                    logger.warning(f"RuntimeError while gathering remaining tasks: {e}") # e.g. loop already closed
-                logger.info("Remaining tasks completed or cancelled.")
+            logger.info("Running final shutdown sequence.")
+            loop.run_until_complete(shutdown_async())
+            
+            # Add a small delay to allow cancelled tasks to finish their cleanup
+            # before the event loop is closed. This prevents "Event loop is closed" errors.
+            logger.info("Draining event loop before final close...")
+            loop.run_until_complete(asyncio.sleep(0.1))
 
             loop.close()
             logger.info("Event loop closed.")

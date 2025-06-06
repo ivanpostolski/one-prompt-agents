@@ -18,7 +18,7 @@ This module relies on other components:
 """
 import asyncio
 import logging
-from typing import Any, List, Dict, Optional # Retained for historical context, can be pruned
+from typing import Any, List, Dict, Optional, TYPE_CHECKING
 
 from agents import Runner, trace, enable_verbose_stdout_logging
 from agents.exceptions import ModelBehaviorError # <-- Import ModelBehaviorError
@@ -27,6 +27,9 @@ from agents.exceptions import ModelBehaviorError # <-- Import ModelBehaviorError
 from .strategies import get_chat_strategy, ChatEndStrategy # Assuming ChatEndStrategy is needed for type hints
 from .job_manager import Job, get_job, get_done_jobs # JOBS is managed within job_manager
 from .chat_utils import spinner, connect_mcps
+
+if TYPE_CHECKING:
+    from one_prompt_agents.mcp_agent import MCPAgent
 
 logger = logging.getLogger(__name__)
 
@@ -149,10 +152,18 @@ async def autonomous_chat(job: Job, max_turns: int = 15) -> None:
         logger.info(f"Job {job.job_id}: Max turns ({max_turns}) reached. Current history saved. Job status: '{job.status}'.")
     return
 
-async def user_chat(mcp_agent: Any):
+async def user_chat(mcp_agent: "MCPAgent"):
     """Manages an interactive chat session (REPL) between a user and an agent.
+
+    This function is designed for direct, command-line interaction with an agent.
+    It automatically uses the `interactive_agent` attribute of the passed-in
+    `mcp_agent`. This ensures that all interactive chats use a consistent
+    output format (`assistant_reply: str`) regardless of the main agent's
+    configured return type.
+
     Args:
-        mcp_agent: The MCPAgent instance to chat with.
+        mcp_agent (MCPAgent): The MCPAgent instance to chat with. This function will
+            specifically use the `mcp_agent.interactive_agent` for the session.
     """
     enable_verbose_stdout_logging()
     history: List[Dict[str, str]] = []
@@ -184,13 +195,14 @@ async def user_chat(mcp_agent: Any):
                 result = await Runner.run(starting_agent=chat_agent, input=turn_input, max_turns=10)
                 
                 final_output_data = result.final_output
-                # Prefer 'assistant_reply' if present
-                assistant_reply_content = getattr(final_output_data, 'assistant_reply', None)
-                
-                logger.info(f"Assistant raw output: {final_output_data}")
-                print(f"Assistant: {assistant_reply_content}")
-
                 history = result.to_input_list()
+            
+            # Prefer 'assistant_reply' if present
+            assistant_reply_content = getattr(final_output_data, 'assistant_reply', None)
+            
+            logger.info(f"Assistant raw output: {final_output_data}")
+            if assistant_reply_content:
+                print(f"Assistant: {assistant_reply_content}")
 
 async def chat_worker(queue: "asyncio.Queue[Job]") -> None:
     """A worker that processes jobs from an asyncio queue.
