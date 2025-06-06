@@ -4,17 +4,19 @@
 import asyncio
 from fastmcp import FastMCP
 from agents.mcp import MCPServerStdio, MCPServerSse
-from agents import Agent, Runner, trace, enable_verbose_stdout_logging, RunHooks
+from agents import Agent, Runner, trace, enable_verbose_stdout_logging, RunHooks, WebSearchTool, FileSearchTool
 from typing import Any, List
 from one_prompt_agents.utils import uvicorn_log_level
 from one_prompt_agents.job_manager import submit_job, get_job
-from one_prompt_agents.chat_utils import CaptureLastAssistant
+from pydantic import BaseModel
 
 import logging
 logger = logging.getLogger(__name__) 
 
 next_port = 8000
 
+class InteractiveReply(BaseModel):
+    assistant_reply: str
 
 class MCPAgent(MCPServerSse):
     """Represents an agent that is also an MCP SSE (Server-Sent Events) server.
@@ -45,6 +47,7 @@ class MCPAgent(MCPServerSse):
         job_queue: asyncio.Queue,
         model: str,
         strategy_name: str = "default",
+        tools_config: dict = None,
     ):
         """Initializes the MCPAgent.
 
@@ -57,6 +60,9 @@ class MCPAgent(MCPServerSse):
             job_queue (asyncio.Queue): The job queue for submitting tasks to this agent's chat worker.
             model (str): The model name (e.g., "gpt-4-1106-preview") for the underlying agent.
             strategy_name (str, optional): The chat strategy to use. Defaults to "default".
+            tools_config (dict, optional): Configuration for tools to be used by the agent.
+                                           Keys are tool names (str), values are parameter dicts or None.
+                                           Defaults to None (no tools).
         """
         global next_port
         next_port += 1
@@ -81,12 +87,48 @@ class MCPAgent(MCPServerSse):
         with open(prompt_file, 'r', encoding='utf-8') as f:
             instructions = f.read()
 
+        agent_tools = []
+        if tools_config:
+            logger.info(f"Configuring tools for agent {name} based on tools_config: {tools_config}")
+            tool_mapping = {
+                "WebSearchTool": WebSearchTool,
+                "FileSearchTool": FileSearchTool,
+                # Add other supported tools here
+            }
+
+            for tool_name, params in tools_config.items():
+                logger.info(f"Attempting to add tool: {tool_name} with params: {params}")
+                if tool_name in tool_mapping:
+                    ToolClass = tool_mapping[tool_name]
+                    try:
+                        if params and isinstance(params, dict):
+                            agent_tools.append(ToolClass(**params))
+                            logger.info(f"Successfully added tool '{tool_name}' with provided parameters.")
+                        else: # params is None or not a dict (e.g. empty list, though dict is expected)
+                            agent_tools.append(ToolClass())
+                            logger.info(f"Successfully added tool '{tool_name}' with default parameters.")
+                    except Exception as e:
+                        logger.error(f"Error instantiating tool {tool_name} with params {params}: {e}")
+                else:
+                    logger.warning(f"Tool '{tool_name}' in tools_config is not recognized or supported.")
+
         self.agent = Agent(
             name=name,
             instructions=instructions,
             model=model,
             output_type=return_type,
             mcp_servers=mcp_servers,
+            tools=agent_tools,
+        )
+
+        # Add interactive_agent with fixed return_type
+        self.interactive_agent = Agent(
+            name=f"{name}_interactive",
+            instructions=instructions,
+            model=model,
+            output_type=InteractiveReply,
+            mcp_servers=mcp_servers,
+            tools=agent_tools,
         )
 
         # FastMCP server to expose this agent as a tool

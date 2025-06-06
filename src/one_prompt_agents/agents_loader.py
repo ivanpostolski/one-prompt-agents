@@ -3,7 +3,7 @@
 # load_order = topo_sort(configs)
 import json, importlib, sys
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Any
 from collections import defaultdict
 from pydantic import BaseModel,  PrivateAttr
 from one_prompt_agents.mcp_agent import MCPAgent
@@ -26,6 +26,7 @@ class AgentConfig(BaseModel):
         strategy_name (str): The name of the chat strategy to use for this agent. Defaults to "default".
         _path (Path): Private attribute storing the relative path to the agent's configuration folder.
                       This is set during discovery.
+        tools_config (Dict[str, Any] | None): Additional configuration for the tools used by the agent.
     """
     name: str
     prompt_file: str
@@ -35,6 +36,7 @@ class AgentConfig(BaseModel):
     _path: Path = PrivateAttr()
     model: str | None = None
     strategy_name: str = "default"
+    tools_config: Dict[str, Any] | None = None
 
 def discover_configs(agents_dir: Path) -> Dict[str, AgentConfig]:
     """Discovers agent configurations from subdirectories of `agents_dir`.
@@ -174,6 +176,7 @@ def load_agents(configs, load_order, static_servers, job_queue):
             job_queue  = job_queue,
             model= cfg.model if cfg.model is not None else "o4-mini", 
             strategy_name = cfg.strategy_name if hasattr(cfg, 'strategy_name') else "default",
+            tools_config = cfg.tools_config if hasattr(cfg, 'tools_config') else None
         )
         loaded[name] = mcp_agent
     return loaded

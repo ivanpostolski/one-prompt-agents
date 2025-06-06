@@ -14,24 +14,22 @@ Key functionalities:
 This module relies on other components:
 - `strategies.py` for selecting and applying chat termination strategies.
 - `job_manager.py` for accessing job details and status.
-- `chat_utils.py` for utilities like `spinner`, `connect_mcps`, and `CaptureLastAssistant`.
+- `chat_utils.py` for utilities like `spinner`, `connect_mcps`.
 """
 import asyncio
 import logging
 from typing import Any, List, Dict, Optional # Retained for historical context, can be pruned
 
 from agents import Runner, trace, enable_verbose_stdout_logging
+from agents.exceptions import ModelBehaviorError # <-- Import ModelBehaviorError
 
 # Imports from newly created modules
 from .strategies import get_chat_strategy, ChatEndStrategy # Assuming ChatEndStrategy is needed for type hints
 from .job_manager import Job, get_job, get_done_jobs # JOBS is managed within job_manager
-from .chat_utils import spinner, connect_mcps, CaptureLastAssistant
+from .chat_utils import spinner, connect_mcps
 
 logger = logging.getLogger(__name__)
 
-# Instantiate the hook if it's intended to be a singleton used by core_chat functions
-# Alternatively, it can be passed as an argument if different instances are needed.
-capture_hook = CaptureLastAssistant()
 
 async def autonomous_chat(job: Job, max_turns: int = 15) -> None:
     """Manages an autonomous chat session for a given job.
@@ -75,49 +73,75 @@ async def autonomous_chat(job: Job, max_turns: int = 15) -> None:
                 logger.info(f"Job {job.job_id}: Turn {check}/{max_turns}")
                 turn_input_for_api = current_conversation_history + [{"role": "user", "content": current_user_message_content}]
                 
-                # Using the global capture_hook from chat_utils
-                single_agent_run = await Runner.run(job.agent, input=turn_input_for_api, hooks=capture_hook)
-                
-                logger.debug(f"Job {job.job_id}: Agent run output object: {single_agent_run}")
-                final_output_data = single_agent_run.final_output # This is already the parsed Pydantic model or dict
-                logger.info(f"Job {job.job_id}: Agent run final output: {final_output_data}")
-                logger.info(f"Job {job.job_id}: Trace URL: https://platform.openai.com/traces/{tr.trace_id}")
+                try:                    
+                    single_agent_run = await Runner.run(job.agent, input=turn_input_for_api)
+                    
+                    logger.debug(f"Job {job.job_id}: Agent run output object: {single_agent_run}")
+                    final_output_data = single_agent_run.final_output # This is already the parsed Pydantic model or dict
+                    logger.info(f"Job {job.job_id}: Agent run final output: {final_output_data}")
+                    logger.info(f"Job {job.job_id}: Trace URL: https://platform.openai.com/traces/{tr.trace_id}")
 
-                current_conversation_history = single_agent_run.to_input_list()
-                job.chat_history = current_conversation_history.copy()
+                    current_conversation_history = single_agent_run.to_input_list()
+                    job.chat_history = current_conversation_history.copy()
 
-                # Safely access summary from the final_output_data
-                if isinstance(final_output_data, dict) and "summary" in final_output_data:
-                    job.summary = final_output_data["summary"]
-                elif hasattr(final_output_data, "summary"):
-                    job.summary = final_output_data.summary
+                    # Safely access summary from the final_output_data
+                    if isinstance(final_output_data, dict) and "summary" in final_output_data:
+                        job.summary = final_output_data["summary"]
+                    elif hasattr(final_output_data, "summary"):
+                        job.summary = final_output_data.summary
 
-                # Pass get_job from job_manager to the strategy's next_turn method
-                end_agent_run, new_user_request_content = prompt_strategy.next_turn(
-                    final_output_data,
-                    current_conversation_history,
-                    job.agent,
-                    job.job_id,
-                    get_job # Pass the get_job function
-                )
+                    # Pass get_job from job_manager to the strategy's next_turn method
+                    end_agent_run, new_user_request_content = prompt_strategy.next_turn(
+                        final_output_data,
+                        current_conversation_history,
+                        job.agent, # This is agents.Agent instance
+                        job.job_id,
+                        get_job # Pass the get_job function
+                    )
 
-                if end_agent_run:
-                    logger.info(f"Job {job.job_id}: Strategy indicates completion after {check} turn(s)." )
-                    job.status = 'done'
-                    logger.info(f"Job {job.job_id}: Status set to 'done' by autonomous_chat.")
-                    return
-                else:
-                    if job.status == "in_queue": # If job was re-queued by a tool like _start_and_wait
-                        logger.info(f"Job {job.job_id} was moved back to queue. Halting autonomous_chat for this iteration.")
+                    if end_agent_run:
+                        logger.info(f"Job {job.job_id}: Strategy indicates completion after {check} turn(s)." )
+                        job.status = 'done'
+                        logger.info(f"Job {job.job_id}: Status set to 'done' by autonomous_chat.")
                         return
-                    current_user_message_content = new_user_request_content
-                    if not current_user_message_content:
-                        logger.warning(f"Job {job.job_id}: Strategy returned no content for next turn. Ending run.")
-                        job.status = 'error' # Or some other status to indicate an issue
-                        job.summary = (job.summary or "") + " Error: Strategy returned no content for next turn."
-                        return 
-                    logger.info(f"Job {job.job_id}: New user request for next turn: {current_user_message_content[:100]}...")
+                    else:
+                        if job.status == "in_queue": # If job was re-queued by a tool like _start_and_wait
+                            logger.info(f"Job {job.job_id} was moved back to queue. Halting autonomous_chat for this iteration.")
+                            return
+                        current_user_message_content = new_user_request_content
+                        if not current_user_message_content:
+                            logger.warning(f"Job {job.job_id}: Strategy returned no content for next turn. Ending run.")
+                            job.status = 'error' # Or some other status to indicate an issue
+                            job.summary = (job.summary or "") + " Error: Strategy returned no content for next turn."
+                            return 
+                        logger.info(f"Job {job.job_id}: New user request for next turn: {current_user_message_content[:100]}...")
 
+                except ModelBehaviorError as e:
+                    logger.error(f"Job {job.job_id}: ModelBehaviorError during turn {check}: {e}", exc_info=True)
+                    # Attempt to get the raw output that caused the error.
+                    # The ModelBehaviorError has arguments (json_str, type_adapter) but doesn't store json_str directly.
+                    # The string representation of e includes it, but it's better if we can extract it more cleanly.
+                    # Pydantic's ValidationError (often wrapped by ModelBehaviorError) has `input_value` in its error dicts.
+                    raw_llm_output = "[Could not extract raw LLM output from error]"
+                    if hasattr(e, 'errors') and callable(e.errors):
+                        try:
+                            error_details = e.errors()
+                            if error_details and isinstance(error_details, list) and error_details[0].get('input_value'):
+                                raw_llm_output = str(error_details[0]['input_value'])
+                        except Exception as ex_extract:
+                            logger.warning(f"Job {job.job_id}: Could not extract input_value from ModelBehaviorError: {ex_extract}")
+                    
+                    current_user_message_content = prompt_strategy.get_format_correction_prompt(
+                        agent_name=job.agent.name,
+                        agent_instructions=job.agent.instructions,
+                        expected_return_type=job.agent.output_type,
+                        raw_llm_output=raw_llm_output, # Pass the raw output if available
+                        error_details=str(e) # Full error string for context
+                    )
+                    logger.info(f"Job {job.job_id}: Sending correction prompt to agent due to formatting error.")
+                    # Add the error and correction attempt to chat history for context
+                    job.chat_history.append({"role": "system", "content": f"Error during previous turn: {e}. Attempting to correct."})
+                    continue # Continue to the next iteration of the loop with the corrective prompt
             except Exception as e:
                 logger.error(f"Job {job.job_id}: Error during turn {check}: {e}", exc_info=True)
                 current_user_message_content = f"The last attempt failed with an error: {e}. Please review the situation, check your plan, and try to recover and continue the task."
@@ -125,22 +149,26 @@ async def autonomous_chat(job: Job, max_turns: int = 15) -> None:
         logger.info(f"Job {job.job_id}: Max turns ({max_turns}) reached. Current history saved. Job status: '{job.status}'.")
     return
 
-async def user_chat(agent: Any):
+async def user_chat(mcp_agent: Any):
     """Manages an interactive chat session (REPL) between a user and an agent.
     Args:
-        agent: The agent instance to chat with.
+        mcp_agent: The MCPAgent instance to chat with.
     """
     enable_verbose_stdout_logging()
     history: List[Dict[str, str]] = []
-    workflow_id = f"User-Chat-{getattr(agent, 'name', 'UnnamedAgent')}"
+
+    # The interactive agent is what we want to use here. It's an attribute of the MCPAgent.
+    chat_agent = mcp_agent.interactive_agent
+    workflow_id = f"User-Chat-{getattr(chat_agent, 'name', 'UnnamedAgent')}"
 
     loop = asyncio.get_running_loop()
-    await connect_mcps(agent) # connect_mcps is now in chat_utils
+    await connect_mcps(mcp_agent) # connect_mcps is now in chat_utils
 
     with trace(workflow_id):
         while True:
             try:
-                user_text = await loop.run_in_executor(None, input, f"{getattr(agent, 'name', 'Agent')} You: ")
+                # The prompt should show the main agent name (the MCPAgent's name).
+                user_text = await loop.run_in_executor(None, input, f"{getattr(mcp_agent, 'name', 'Agent')} You: ")
                 user_text = user_text.strip()
             except (EOFError, KeyboardInterrupt):
                 logger.debug("User interrupted input via EOF/KeyboardInterrupt.")
@@ -150,14 +178,14 @@ async def user_chat(agent: Any):
                 logger.info("Exiting user chat session.")
                 return
             
-            async with spinner(f"{getattr(agent, 'name', 'Agent')} thinking..."): # spinner from chat_utils
+            async with spinner(f"{getattr(mcp_agent, 'name', 'Agent')} thinking..."): # spinner from chat_utils
                 turn_input = history + [{"role": "user", "content": user_text}]
-                # Using the global capture_hook from chat_utils
-                result = await Runner.run(starting_agent=agent, input=turn_input, max_turns=10, hooks=capture_hook)
+                
+                result = await Runner.run(starting_agent=chat_agent, input=turn_input, max_turns=10)
                 
                 final_output_data = result.final_output
-                # Attempt to extract a 'content' field for display, common in REPLs
-                assistant_reply_content = getattr(final_output_data, 'content', str(final_output_data))
+                # Prefer 'assistant_reply' if present
+                assistant_reply_content = getattr(final_output_data, 'assistant_reply', None)
                 
                 logger.info(f"Assistant raw output: {final_output_data}")
                 print(f"Assistant: {assistant_reply_content}")

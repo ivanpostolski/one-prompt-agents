@@ -62,47 +62,6 @@ async def spinner(text: str = ""):
         stop.set()
         await task
 
-class CaptureLastAssistant(RunHooks):
-    """A `RunHooks` implementation to capture the agent's responses and tool calls.
-
-    This class is used to intercept and store the assistant's messages and log
-    when tools are initiated by the agent.
-
-    Attributes:
-        history (List[str]): A list storing the content of assistant messages.
-    """
-    def __init__(self):
-        """Initializes CaptureLastAssistant with an empty history list."""
-        self.history: List[str] = []
-
-    async def on_generation_end(self, item, ctx):
-        """Hook called after an agent generation (response) is complete.
-
-        Appends the assistant's message content to the internal history.
-
-        Args:
-            item: The generation item, containing `item.output.content`.
-            ctx: The context of the run.
-        """
-        assistant_content = getattr(item.output, 'content', str(item.output)) # Safely get content
-        logger.info(f"[CAPTURE HOOK] Assistant: {assistant_content}")
-        self.history.append(assistant_content)
-
-    async def on_tool_start(self, context, agent, tool) -> None:
-        """Hook called before an agent tool call is executed.
-
-        Logs the start of the tool call.
-
-        Args:
-            context: The current run context.
-            agent: The agent instance.
-            tool: The tool being called.
-        """
-        logger.info(f"[CAPTURE HOOK] Tool started: {tool.name}")
-
-# Global instance, if desired, or could be instantiated where needed.
-# If global, other modules can import it directly.
-# capture_hook = CaptureLastAssistant()
 
 async def connect_mcps(agent: Any, retries: int = 3):
     """Connects the agent to its associated MCP (Multi-Context Platform) servers.

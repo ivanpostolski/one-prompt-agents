@@ -130,7 +130,7 @@ def main_cli():
             if not target_mcp_agent:
                 logger.error(f"Agent {args.agent_name} not found for REPL mode.")
                 raise ValueError(f"Agent {args.agent_name} not found.")
-            loop.run_until_complete(user_chat(target_mcp_agent.agent))
+            loop.run_until_complete(user_chat(target_mcp_agent))
             logger.info("Interactive REPL terminated by user.")
             # In REPL mode, we typically don't start the server afterwards.
             should_start_server = False

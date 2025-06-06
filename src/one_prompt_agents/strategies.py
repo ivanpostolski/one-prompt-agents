@@ -19,7 +19,9 @@ Strategies are designed to be decoupled from direct job state access by receivin
 a `get_job_func` to query job details, avoiding circular dependencies.
 """
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any, Type
+from pydantic import TypeAdapter, BaseModel
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ class ChatEndStrategy:
         Args:
             final_output: The final output from the agent's last turn.
             history: The conversation history.
-            agent: The agent instance.
+            agent: The agent instance (typically `agents.Agent`).
             job_id (str): The ID of the current job.
             get_job_func (callable): A function to retrieve a job by its ID.
 
@@ -54,6 +56,45 @@ class ChatEndStrategy:
             next user message if the chat continues, or None if it ends.
         """
         raise NotImplementedError
+
+    def get_format_correction_prompt(
+        self, 
+        agent_name: str, 
+        agent_instructions: str, 
+        expected_return_type: Type[BaseModel],
+        raw_llm_output: str, 
+        error_details: str
+    ) -> str:
+        """Generates a prompt to correct the LLM's output format.
+
+        Args:
+            agent_name (str): Name of the agent.
+            agent_instructions (str): Original instructions for the agent.
+            expected_return_type (Type[BaseModel]): The Pydantic model expected for the output.
+            raw_llm_output (str): The raw output from the LLM that caused the error.
+            error_details (str): Details of the parsing error.
+
+        Returns:
+            str: A corrective prompt to send back to the LLM.
+        """
+        try:
+            schema = TypeAdapter(expected_return_type).json_schema()
+        except Exception as e:
+            logger.error(f"Could not generate JSON schema for {expected_return_type}: {e}")
+            schema = "Error generating schema. Please refer to the Pydantic model definition."
+
+        part1 = f"Your previous response for agent '{agent_name}' was not in the correct format and could not be parsed.\n"
+        part2 = f"Error details: {error_details}\n"
+        part3 = f"The raw output you provided was:\n```json\n{raw_llm_output}\n```\n\n"
+        part4 = f"Please carefully review your instructions and the required output format. "
+        part5 = f"Your main instructions are:\n---\n{agent_instructions}\n---\n"
+        part6 = f"You MUST respond with a valid JSON object matching the following Pydantic model schema:\n"
+        
+        schema_str = json.dumps(schema, indent=2)
+        part7 = f"Schema for {expected_return_type.__name__}:\n```json\n{schema_str}\n```\n"
+        part8 = f"Ensure your entire response is a single, valid JSON object. Pay special attention to string escaping"
+
+        return part1 + part2 + part3 + part4 + part5 + part6 + part7 + part8
 
 class ContinueLastUncheckedStrategy(ChatEndStrategy):
     """A strategy that continues the chat as long as there are unchecked steps in the plan.
