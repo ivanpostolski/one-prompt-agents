@@ -1,12 +1,6 @@
 """
 This MCP server is used to get the status of a job using its job_id.
 """
-from datetime import datetime, timedelta
-
-
-from pymongo import MongoClient, ASCENDING, TEXT
-from pymongo.collection import Collection
-from pymongo.errors import PyMongoError
 
 from fastmcp import FastMCP
 from agents.mcp import MCPServerSse
