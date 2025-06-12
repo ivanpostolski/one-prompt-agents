@@ -9,6 +9,7 @@ from typing import Any, List
 from one_prompt_agents.utils import uvicorn_log_level
 from one_prompt_agents.job_manager import submit_job, get_job
 from pydantic import BaseModel
+from one_prompt_agents.strategies import get_chat_strategy  # local import to avoid cycles
 
 import logging
 logger = logging.getLogger(__name__) 
@@ -89,7 +90,10 @@ class MCPAgent(MCPServerSse):
         self.job_queue = job_queue
         self.mcp_servers = mcp_servers
         self.prompt_file = prompt_file
-        self.return_type = return_type
+        # Make sure the return_type satisfies the requirements of the chosen prompt strategy
+        strategy_cls = get_chat_strategy(strategy_name)
+        augmented_return_type = strategy_cls.ensure_return_type(return_type)
+        self.return_type = augmented_return_type
         self.inputs_description = inputs_description
         self.strategy_name = strategy_name
 
@@ -125,7 +129,7 @@ class MCPAgent(MCPServerSse):
             name=name,
             instructions=instructions,
             model=model,
-            output_type=return_type,
+            output_type=augmented_return_type,
             mcp_servers=mcp_servers,
             tools=agent_tools,
         )

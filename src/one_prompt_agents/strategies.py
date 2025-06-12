@@ -19,8 +19,8 @@ Strategies are designed to be decoupled from direct job state access by receivin
 a `get_job_func` to query job details, avoiding circular dependencies.
 """
 import logging
-from typing import Tuple, Optional, Any, Type
-from pydantic import TypeAdapter, BaseModel
+from typing import Tuple, Optional, Any, Type, List, Dict
+from pydantic import TypeAdapter, BaseModel, Field, create_model
 import json
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,57 @@ class ChatEndStrategy:
 
         return part1 + part2 + part3 + part4 + part5 + part6 + part7 + part8
 
+    # ---------------------------------------------------------------------
+    # Return-type helper
+    # ---------------------------------------------------------------------
+    @classmethod
+    def ensure_return_type(cls, return_type: Type[BaseModel]) -> Type[BaseModel]:
+        """Return the given Pydantic model or, if required fields are missing for
+        the current strategy, return a *new* Pydantic model class that extends
+        the original one with the necessary definitions.
+
+        Sub-classes can override this to enforce their own schema requirements.
+        The default implementation just forwards ``return_type`` unchanged.
+        """
+        return return_type
+
+    # ---------------------- internal helper utilities --------------------
+    @staticmethod
+    def _augment_step_model(original_model: Type[BaseModel], required_fields: Dict[str, tuple[Any, Any]]) -> Type[BaseModel]:
+        """Create a new model based on *original_model* that contains all
+        ``required_fields``.  If *original_model* already contains a field with
+        the same name the original definition is preserved.
+
+        Args:
+            original_model: The user-supplied step model.
+            required_fields: Mapping of *field_name* -> (*type*, *default*).
+
+        Returns:
+            A new subclass of ``original_model`` containing all of the
+            ``required_fields``.
+        """
+        missing: Dict[str, tuple[Any, Any]] = {}
+        for fname, (ftype, fdefault) in required_fields.items():
+            if fname not in original_model.model_fields:  # pydantic v2
+                missing[fname] = (ftype, fdefault)
+
+        if not missing:
+            return original_model
+
+        # Build an augmented version that inherits from the original but adds
+        # the required fields.
+        Augmented = create_model(
+            f"{original_model.__name__}Augmented",  # type: ignore[arg-type]
+            __base__=original_model,
+            **missing,
+        )
+        return Augmented
+
+    @staticmethod
+    def _build_plan_field(step_model: Type[BaseModel]):
+        """Utility to build a plan field tuple for ``create_model`` calls."""
+        return (List[step_model], Field(default_factory=list, description="Plan of steps to execute"))
+
 class ContinueLastUncheckedStrategy(ChatEndStrategy):
     """A strategy that continues the chat as long as there are unchecked steps in the plan.
 
@@ -104,6 +155,64 @@ class ContinueLastUncheckedStrategy(ChatEndStrategy):
     is no longer 'in_progress'.
     """
     start_instruction: str = "Start by making a plan"
+
+    @classmethod
+    def ensure_return_type(cls, return_type: Type[BaseModel]) -> Type[BaseModel]:
+        """Ensure the supplied ``return_type`` has a ``plan`` field whose item
+        model contains a boolean ``checked`` property.  If any of these are
+        missing, a new Pydantic model class is generated that satisfies the
+        requirement and returned instead.
+        """
+        # Step-level requirement: ``checked: bool``
+        required_step_fields = {
+            "checked": (bool, Field(default=False, description="Whether this step is completed."))
+        }
+
+        # --- Check if a plan field exists ----------------------------------
+        if "plan" in return_type.model_fields:
+            plan_field_info = return_type.model_fields["plan"]
+            annotation = plan_field_info.annotation
+            step_model = None
+
+            # Extract the step model from typing e.g. list[StepModel]
+            try:
+                from typing import get_origin, get_args
+                origin = get_origin(annotation)
+                if origin in (list, List):
+                    args = get_args(annotation)
+                    if args:
+                        step_model = args[0]
+            except Exception:
+                step_model = None
+
+            if step_model is None or not isinstance(step_model, type):
+                # Unable to introspect – build a brand-new plan step model with the required field.
+                NewStepModel = create_model("PlanStep", **required_step_fields)  # type: ignore[arg-type]
+            elif issubclass(step_model, BaseModel):
+                # Check if the required field already exists.
+                if "checked" in step_model.model_fields:
+                    return return_type  # Already satisfies requirement.
+                NewStepModel = cls._augment_step_model(step_model, required_step_fields)
+            else:
+                # Non-pydantic or non-model annotation, replace completely.
+                NewStepModel = create_model("PlanStep", **required_step_fields)  # type: ignore[arg-type]
+
+            # Build new return_type overriding plan with NewStepModel
+            NewReturn = create_model(
+                f"{return_type.__name__}WithPlanChecked",  # type: ignore[arg-type]
+                __base__=return_type,
+                plan=cls._build_plan_field(NewStepModel),
+            )
+            return NewReturn
+
+        # If no plan field exists, create one.
+        PlanStep = create_model("PlanStep", **required_step_fields)  # type: ignore[arg-type]
+        NewReturn = create_model(
+            f"{return_type.__name__}WithPlan",  # type: ignore[arg-type]
+            __base__=return_type,
+            plan=cls._build_plan_field(PlanStep),
+        )
+        return NewReturn
 
     def next_turn(self, final_output, history, agent, job_id: str, get_job_func) -> Tuple[bool, Optional[str]]:
         """Checks the plan and job status to decide the next action.
@@ -143,6 +252,57 @@ class PlanWatcherStrategy(ChatEndStrategy):
     The chat ends if the job status is no longer 'in_progress' or all steps are checked.
     """
     start_instruction: str = "Start by making a plan"
+
+    @classmethod
+    def ensure_return_type(cls, return_type: Type[BaseModel]) -> Type[BaseModel]:
+        """Ensure the return type includes a ``plan`` list of steps that each
+        expose **both** a ``step_name: str`` and a ``checked: bool`` field.
+        """
+        required_step_fields = {
+            "step_name": (str, Field(..., description="Name of the plan step.")),
+            "checked": (bool, Field(default=False, description="Whether the step is completed."))
+        }
+
+        if "plan" in return_type.model_fields:
+            plan_field_info = return_type.model_fields["plan"]
+            annotation = plan_field_info.annotation
+            step_model = None
+
+            try:
+                from typing import get_origin, get_args
+                origin = get_origin(annotation)
+                if origin in (list, List):
+                    args = get_args(annotation)
+                    if args:
+                        step_model = args[0]
+            except Exception:
+                step_model = None
+
+            if step_model is None or not isinstance(step_model, type):
+                NewStepModel = create_model("WatcherPlanStep", **required_step_fields)  # type: ignore[arg-type]
+            elif issubclass(step_model, BaseModel):
+                # If already satisfied, no changes needed.
+                if all(f in step_model.model_fields for f in required_step_fields):
+                    return return_type
+                NewStepModel = cls._augment_step_model(step_model, required_step_fields)
+            else:
+                NewStepModel = create_model("WatcherPlanStep", **required_step_fields)  # type: ignore[arg-type]
+
+            NewReturn = create_model(
+                f"{return_type.__name__}Watched",  # type: ignore[arg-type]
+                __base__=return_type,
+                plan=cls._build_plan_field(NewStepModel),
+            )
+            return NewReturn
+
+        # No plan field at all, create one with required step model
+        StepModel = create_model("WatcherPlanStep", **required_step_fields)  # type: ignore[arg-type]
+        NewReturn = create_model(
+            f"{return_type.__name__}WithPlan",  # type: ignore[arg-type]
+            __base__=return_type,
+            plan=cls._build_plan_field(StepModel),
+        )
+        return NewReturn
 
     def __init__(self):
         """Initializes the PlanWatcherStrategy with an empty plan dictionary."""

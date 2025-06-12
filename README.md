@@ -23,11 +23,11 @@ your-project-root/
 │   ├── AgentName1/
 │   │   ├── config.json
 │   │   ├── prompt.txt
-│   │   └── return_type.py
+│   │   └── return_type.py (optional)
 │   └── AgentName2/
 │       ├── config.json
 │       ├── another_prompt.md
-│       └── return_type.py
+│       └── return_type.py (optional)
 └── src/
     └── one_prompt_agents/
         └── main.py
@@ -40,7 +40,7 @@ Inside each agent's directory (e.g., `AgentName1`), you'll find:
 1.  **`config.json`**: This is the heart of the agent's definition.
     *   `name` (string): The unique name of the agent. This name is used to identify and call the agent.
     *   `prompt_file` (string): The filename of the text file containing the agent's core prompt (e.g., "prompt.txt", "instructions.md").
-    *   `return_type` (string): The name of the Pydantic model class defined in `return_type.py`. This class specifies the expected structure of the agent's output.
+    *   `return_type` (string, _optional_): The name of a Pydantic model class defined in `return_type.py`. If this field is omitted **or** the `return_type.py` file is absent/empty, the framework will create a minimal model automatically and the selected prompt-strategy will augment it with any fields it needs.
     *   `inputs_description` (string): A human-readable description of what inputs the agent expects. This helps in understanding how to interact with the agent.
     *   `tools` (list of strings): A list of other agents or pre-defined MCP (Multi-Capability Agent Protocol) server names that this agent can utilize as tools. If the agent doesn't use any tools, this can be an empty list `[]`.
     *   `model` (string, optional): Specifies the underlying language model to be used (e.g., "o4-mini", "gpt-4"). If omitted, a default model (currently "o4-mini") is used.
@@ -48,9 +48,9 @@ Inside each agent's directory (e.g., `AgentName1`), you'll find:
 2.  **Prompt File** (e.g., `prompt.txt`, `another_prompt.md`):
     *   This is a plain text or markdown file containing the natural language instructions, persona, and context for the AI agent. The content of this file will guide the agent's behavior and responses.
 
-3.  **`return_type.py`**:
-    *   A Python file that defines a Pydantic model corresponding to the `return_type` string in `config.json`.
-    *   This model dictates the schema of the data that the agent is expected to return after processing a prompt. This allows for structured and predictable outputs.
+3.  **`return_type.py`** (optional):
+    *   If present, this Python file defines a Pydantic model corresponding to the `return_type` string (if provided) in `config.json`.
+    *   Providing your own model lets you enforce additional structure in the agent's output. When the file is missing the framework falls back to an empty model, which strategies will extend as necessary at runtime.
 
     Example `return_type.py`:
     ```python

@@ -5,7 +5,7 @@ import json, importlib, sys
 from pathlib import Path
 from typing import Dict, List, Set, Any
 from collections import defaultdict
-from pydantic import BaseModel,  PrivateAttr
+from pydantic import BaseModel, PrivateAttr, create_model
 from one_prompt_agents.mcp_agent import MCPAgent
 
 import logging
@@ -30,7 +30,7 @@ class AgentConfig(BaseModel):
     """
     name: str
     prompt_file: str
-    return_type: str
+    return_type: str | None = None
     inputs_description: str
     tools: List[str]
     _path: Path = PrivateAttr()
@@ -145,13 +145,37 @@ def load_agents(configs, load_order, static_servers, job_queue):
     loaded = {}
     for name in load_order:
         cfg = configs[name]
-        folder = Path("agents_config") / cfg._path 
-        
-        return_type = folder / "return_type.py"
+        folder = Path("agents_config") / cfg._path
 
-        # load return_type model
-        mod = import_module_from_path(return_type)
-        ReturnType = getattr(mod, cfg.return_type)
+        # --------------------------------------------------------------
+        # Determine the ReturnType model.
+        # It is optional – if either the config omits `return_type` or the
+        # `return_type.py` file is missing/empty, we fall back to a minimal
+        # pydantic model which strategies can augment later.
+        # --------------------------------------------------------------
+        default_return_model_name = f"{cfg.name}Return"
+        ReturnType: type[BaseModel]
+
+        if cfg.return_type is not None:
+            return_type_file = folder / "return_type.py"
+            if return_type_file.exists():
+                try:
+                    mod = import_module_from_path(return_type_file)
+                    ReturnType = getattr(mod, cfg.return_type)
+                except (AttributeError, FileNotFoundError, ImportError, SyntaxError) as e:
+                    logger.warning(
+                        f"Agent '{cfg.name}': Could not import return type '{cfg.return_type}' "
+                        f"from {return_type_file}. Falling back to empty model. Error: {e}"
+                    )
+                    ReturnType = create_model(default_return_model_name, __base__=BaseModel)  # type: ignore[arg-type]
+            else:
+                logger.info(
+                    f"Agent '{cfg.name}': return_type.py not found. Using default empty return model."
+                )
+                ReturnType = create_model(default_return_model_name, __base__=BaseModel)  # type: ignore[arg-type]
+        else:
+            # Completely optional.
+            ReturnType = create_model(default_return_model_name, __base__=BaseModel)  # type: ignore[arg-type]
 
         # wildcard support for tools
         if "*" in cfg.tools:

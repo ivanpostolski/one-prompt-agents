@@ -31,7 +31,7 @@ The `config.json` file is the heart of an agent's definition. It specifies the a
 
 -   **`name` (string):** The unique name of the agent. This name is used to identify and call the agent.
 -   **`prompt_file` (string):** The filename of the text file containing the agent's core prompt (e.g., "prompt.txt", "instructions.md").
--   **`return_type` (string):** The name of the Pydantic model class defined in the corresponding `return_type.py` file. This class specifies the expected structure of the agent's output.
+-   **`return_type` (string, _optional_):** The name of a Pydantic model class defined in the corresponding `return_type.py` file. When omitted—or when `return_type.py` is not provided—the framework uses an empty model and lets prompt strategies add any required fields automatically.
 -   **`inputs_description` (string):** A human-readable description of what inputs the agent expects. This helps in understanding how to interact with the agent.
 -   **`tools` (list of strings):** A list of other agents or pre-defined MCP (Multi-Capability Agent Protocol) server names that this agent can utilize as tools. If the agent doesn't use any tools, this should be an empty list `[]`.
 -   **`model` (string, optional):** Specifies the underlying language model to be used (e.g., "o4-mini", "gpt-4"). If omitted, a default model (currently "o4-mini") is used.
@@ -40,11 +40,11 @@ The `config.json` file is the heart of an agent's definition. It specifies the a
 
 The prompt file (e.g., `prompt.txt`, `instructions.md`) is a plain text or markdown file. It contains the natural language instructions, persona, and context for the AI agent. The content of this file directly guides the agent's behavior and responses.
 
-## The `return_type.py` File
+## The `return_type.py` File (Optional)
 
-The `return_type.py` file defines the expected structure of the agent's output. It uses Pydantic models to specify the schema of the data that the agent should return after processing a prompt. This ensures structured and predictable outputs.
+If you need structured output beyond what the built-in strategies add by default, you can supply a `return_type.py` file that defines one or more Pydantic models. Otherwise you may safely omit this file—an empty model is generated automatically at load-time.
 
-The `return_type` field in `config.json` must match the name of a Pydantic model class defined in this file.
+If you _do_ specify a `return_type` field in `config.json`, it must match the name of a Pydantic model class defined in `return_type.py` (when the file is present).
 
 For example, if your `config.json` has `"return_type": "AnalysisResult"`, your `return_type.py` might look like this:
 
