@@ -74,7 +74,10 @@ async def autonomous_chat(job: Job, max_turns: int = 15) -> None:
         for check in range(1, max_turns + 1):
             try:
                 logger.info(f"Job {job.job_id}: Turn {check}/{max_turns}")
-                turn_input_for_api = current_conversation_history + [{"role": "user", "content": current_user_message_content}]
+                if check == 1:
+                    turn_input_for_api = current_conversation_history + [{"role": "user", "content": current_user_message_content}]
+                else:
+                    turn_input_for_api = current_conversation_history + [{"role": "system", "content": current_user_message_content}]
                 
                 try:                    
                     single_agent_run = await Runner.run(job.agent, input=turn_input_for_api)
@@ -191,8 +194,14 @@ async def user_chat(mcp_agent: "MCPAgent"):
             
             async with spinner(f"{getattr(mcp_agent, 'name', 'Agent')} thinking..."): # spinner from chat_utils
                 turn_input = history + [{"role": "user", "content": user_text}]
-                
-                result = await Runner.run(starting_agent=chat_agent, input=turn_input, max_turns=10)
+                try:
+                    result = await Runner.run(starting_agent=chat_agent, input=turn_input, max_turns=10)
+                except Exception as e:
+                    logger.error(f"Error during agent run in interactive mode: {e}", exc_info=True)
+                    print(f"(Error) The agent encountered an error while processing your request: {e}\nYou can try rephrasing your request or continue the conversation.")
+                    # Add a system message to history so the agent has context about the failure on the next run
+                    history.append({"role": "system", "content": f"The previous attempt failed with error: {e}. Please review and try again."})
+                    continue  # Skip rest of loop and wait for next user input
                 
                 final_output_data = result.final_output
                 history = result.to_input_list()
@@ -231,6 +240,20 @@ async def chat_worker(queue: "asyncio.Queue[Job]") -> None:
             queue.task_done() # Signal that this attempt to process the job is done (for now)
             continue
         
+        # All dependencies are done at this point. If there are dependencies, summarise them for the job context.
+        if job.depends_on:
+            summary_lines = []
+            for dep_id in job.depends_on:
+                dep_job = get_job(dep_id)
+                if dep_job and dep_job.status == 'done':
+                    dep_summary = dep_job.summary or "(no summary provided)"
+                    summary_lines.append(f"You waited for job id: {dep_id}, that now has finished with the summary: {dep_summary}")
+            if summary_lines:
+                # Ensure chat_history is a list
+                if not isinstance(job.chat_history, list):
+                    job.chat_history = []
+                job.chat_history.append({"role": "system", "content": "\n".join(summary_lines)})
+
         try:
             job.status = 'in_progress'
             logger.info(f"Job {job.job_id} status set to 'in_progress'. Starting autonomous_chat.")

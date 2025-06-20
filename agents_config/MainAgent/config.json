@@ -1,9 +1,9 @@
 {
     "name": "MainAgent",
     "prompt_file": "prompt.md",
-    "return_type": "MainAgentResponse",
+    "return_type": "Plan",
     "inputs_description": "Conversational main agent.",
-    "tools": ["testing_mcp_server"],
+    "tools": ["testing_mcp_server", "EchoAgent"],
     "model": "gpt-4.1", 
     "tools_config": {
         "WebSearchTool": {}

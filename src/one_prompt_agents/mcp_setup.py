@@ -156,7 +156,10 @@ async def wait_for_jobs(your_job_id: str, job_ids_to_wait_for: List[str]) -> str
     
     # Reset status and requeue
     waiter.status = 'in_queue'
-    waiter.chat_history += f"Now waiting for jobs: {', '.join(job_ids_to_wait_for)}.\n"
+    # Add a system message so the agent knows it is waiting for other jobs
+    if not isinstance(waiter.chat_history, list):
+        waiter.chat_history = []
+    waiter.chat_history.append({"role": "system", "content": f"Now waiting for jobs: {', '.join(job_ids_to_wait_for)}."})
     await JOB_QUEUE.put(waiter)
 
     return f"Your job ({your_job_id}) is now in queue, waiting for jobs {', '.join(job_ids_to_wait_for)} to complete."

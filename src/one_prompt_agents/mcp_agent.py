@@ -97,8 +97,20 @@ class MCPAgent(MCPServerSse):
         self.inputs_description = inputs_description
         self.strategy_name = strategy_name
 
+        # ------------------------------------------------------------------
+        # Prepare instructions – prepend strategy-defined system message for
+        # the *autonomous* agent only.  The *interactive* agent keeps the
+        # original prompt instructions intact.
+        # ------------------------------------------------------------------
+
         with open(prompt_file, 'r', encoding='utf-8') as f:
-            instructions = f.read()
+            original_instructions = f.read()
+
+
+        system_msg = strategy_cls.system_message(name)
+
+
+        autonomous_instructions = f"{system_msg}\n{original_instructions}".strip()
 
         agent_tools = []
         if tools_config:
@@ -127,17 +139,18 @@ class MCPAgent(MCPServerSse):
 
         self.agent = Agent(
             name=name,
-            instructions=instructions,
+            instructions=autonomous_instructions,
             model=model,
             output_type=augmented_return_type,
             mcp_servers=mcp_servers,
             tools=agent_tools,
         )
 
-        # Add interactive_agent with fixed return_type
+        # Interactive agent uses the original instructions without the system
+        # prefix so as not to pollute direct user interactions.
         self.interactive_agent = Agent(
             name=f"{name}_interactive",
-            instructions=instructions,
+            instructions=original_instructions,
             model=model,
             output_type=InteractiveReply,
             mcp_servers=mcp_servers,
@@ -222,8 +235,10 @@ class MCPAgent(MCPServerSse):
             waiter.status = 'in_queue'
             # add the job id to the waiter's depends_on
             waiter.depends_on.append(job_id)
-            # add the job id to the waiter's chat_history
-            waiter.chat_history += f"Job {job_id} has been started.\n"
+            # Add a system message to the waiter's chat history so it knows why it was queued again
+            if not isinstance(waiter.chat_history, list):
+                waiter.chat_history = []
+            waiter.chat_history.append({"role": "system", "content": f"Job {job_id} has been started. Waiting for its completion."})
             # put the waiter back in the job queue
             await self.job_queue.put(waiter)
 
