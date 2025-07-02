@@ -1,0 +1,8 @@
+{
+    "name": "EmptyAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "EmptyAgentResponse",
+    "inputs_description": "Autonomous agent that receives a subject/body text and emails it to user via user-email-send-mcp.",
+    "tools": ["user-email-send-mcp"],
+    "model": "o4_mini"
+} 

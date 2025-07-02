@@ -1,0 +1,8 @@
+{
+    "name": "StartAndWaitAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "StartAndWaitAgentResponse",
+    "inputs_description": "Agent that deletes files_summary.txt, then invokes AutoFilesystemAgent via _start_and_wait tool and verifies creation of summary file.",
+    "tools": ["filesystem-mcp-server", "AutoFilesystemAgent"],
+    "model": "gpt-4.1"
+} 

@@ -1,0 +1,8 @@
+{
+    "name": "EmailProcessorAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "EmailProcessorAgentResponse",
+    "inputs_description": "Autonomous agent that extracts subject & body from an .eml, then starts EmptyAgent to forward to the user.",
+    "tools": ["email-processor-mcp", "user-email-send-mcp"],
+    "model": "o4_mini"
+} 

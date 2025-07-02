@@ -1,0 +1,8 @@
+{
+    "name": "ApifyCrawlerAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "ApifyCrawlerAgentResponse",
+    "inputs_description": "Autonomous agent that crawls finance.yahoo.com top movers, scrapes each page and writes a summary to data/yahoo_summary.txt",
+    "tools": ["apify-mcp-server", "filesystem-mcp-server"],
+    "model": "gpt-4.1"
+} 

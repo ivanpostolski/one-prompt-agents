@@ -1,0 +1,8 @@
+{
+    "name": "MongoDBAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "MongoDBAgentResponse",
+    "inputs_description": "Interactive agent for MongoDB card database via card-db-mcp.",
+    "tools": ["card-db-mcp"],
+    "model": "o4_mini"
+} 

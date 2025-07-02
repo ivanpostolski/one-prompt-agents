@@ -1,0 +1,4 @@
+one-prompt-agents
+beautifulsoup4
+boto3
+requests 

@@ -1,0 +1,8 @@
+{
+    "name": "FilesystemAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "FilesystemAgentResponse",
+    "inputs_description": "Agent that demonstrates access to local filesystem via MCP server.",
+    "tools": ["filesystem-mcp-server"],
+    "model": "gpt-4.1"
+} 

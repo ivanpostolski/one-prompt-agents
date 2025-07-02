@@ -1,0 +1,8 @@
+{
+    "name": "ApifyScraperAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "ApifyScraperAgentResponse",
+    "inputs_description": "Interactive agent to run Apify actors.",
+    "tools": ["apify-mcp-server"],
+    "model": "o4_mini"
+} 

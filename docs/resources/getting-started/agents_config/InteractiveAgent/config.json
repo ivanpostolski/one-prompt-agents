@@ -1,0 +1,8 @@
+{
+    "name": "InteractiveAgent",
+    "prompt_file": "prompt.md",
+    "return_type": "InteractiveAgentResponse",
+    "inputs_description": "Interactive example agent used in the getting-started guide.",
+    "tools": [],
+    "model": "gpt-4.1"
+} 
