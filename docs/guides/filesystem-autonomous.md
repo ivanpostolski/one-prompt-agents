@@ -43,20 +43,25 @@ What happens:
 
 ## 3  Monitor the run
 
-While the job is running you will see log messages similar to:
+The recommended way to monitor the agent execution is the OpenAI Trace Logs. Essentially because one prompt agents are designed to run autonomously on the cloud (triggering them using emails).  
+
+There is easy to follow which tools were used by an agent, the plan that an agent creates for it's execution and the interaction with other agents.  
+ 
+Autonomous runs receive a different trace ID pattern:
 
 ```
-[agent] 📝 Step 1/3 – reading data/fruits.txt …
-[agent] 📝 Step 2/3 – reading data/animals.txt …
+autonomous-chat-<AgentName>-<JobID>
+# example: autonomous-chat-AutoFilesystemAgent-8923b34c
 ```
 
-Open another terminal to watch the output file grow in real time:
+Follow the same steps:
+1. Open https://platform.openai.com/traces
+2. Search for `AutoFilesystemAgent`.
+3. Open the trace to inspect each step, tool invocation and model output.
 
-```bash
-tail -f data/files_summary.txt | cat
-```
+Comparing traces from interactive (`User-Chat-…`) and autonomous runs is a
+quick way to verify that the agent executed your plan exactly as intended.
 
-Once you see `Job … completed` in the main terminal the summarisation round is done.
 
 ---
 
@@ -76,25 +81,6 @@ When you are finished, shut down the server:
 ```bash
 shutdown_server
 ```
-
----
-
-## 5  Inspect traces
-
-Autonomous runs receive a different trace ID pattern:
-
-```
-autonomous-chat-<AgentName>-<JobID>
-# example: autonomous-chat-AutoFilesystemAgent-8923b34c
-```
-
-Follow the same steps:
-1. Open https://platform.openai.com/traces
-2. Search for `AutoFilesystemAgent`.
-3. Open the trace to inspect each step, tool invocation and model output.
-
-Comparing traces from interactive (`User-Chat-…`) and autonomous runs is a
-quick way to verify that the agent executed your plan exactly as intended.
 
 ---
 

@@ -60,17 +60,6 @@ Create a new file named hello.txt containing "Hello world" and then list the dir
 
 Watch the `data/` directory change in real time.
 
----
-
-## 5  Where to go next
-
-* Proceed to the *Filesystem Autonomous* guide to see how to let an agent summarise files on its own.
-* Modify the MCP server script to mount a different directory or expose read-only access.
-
-Happy hacking! 🎉 
-
----
-
 ## 6  View your traces in the OpenAI dashboard
 
 Every agent turn is automatically wrapped in a trace that you can inspect in
@@ -90,3 +79,10 @@ Steps:
 3. Click on the trace to see every tool call and LLM completion in detail.
 
 This is invaluable while developing prompts or debugging unexpected behaviour. 
+
+## 7  Where to go next
+
+* Proceed to the *Filesystem Autonomous* guide to see how to let an agent summarise files on its own.
+* Modify the MCP server script to mount a different directory or expose read-only access.
+
+Happy hacking! 🎉 

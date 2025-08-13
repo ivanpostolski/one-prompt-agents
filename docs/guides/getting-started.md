@@ -1,6 +1,6 @@
 # Getting Started with one-prompt-agents
 
-Welcome! This guide will take you from **zero to running agents** in just a few minutes.  We will
+Welcome! This guide will take you from **zero to running an agent** in just a few minutes.  We will
 
 1. Install the framework from PyPI.
 2. Create a fresh Python 3.11 virtual-environment.
@@ -47,28 +47,14 @@ That is it – all of the core code (plus FastAPI, pydantic, uvicorn, …) is no
 
 ## 4  Grab the *Getting-Started* sample project
 
-If you cloned this repository you already have the sample in
-`docs/resources/getting-started`.  Otherwise simply pull it straight from GitHub:
-
 ```bash
-# clone only the sample directory using sparse-checkout (Git ≥ 2.25):
-REPO=https://github.com/<your-org>/one-prompt-agents
-mkdir getting-started && cd getting-started
-
-git init -q
-
-git remote add origin "$REPO"
-
-git sparse-checkout init --cone
-
-git sparse-checkout set docs/resources/getting-started
-
-git pull -q origin main
-
-# move the files one level up and tidy:
-mv docs/resources/getting-started/* .
-rm -rf docs
+git clone --depth=1 --filter=blob:none --no-checkout https://github.com/ivanpostolski/one-prompt-agents
+cd one-prompt-agents 
+git sparse-checkout set docs
+git checkout main
+cd docs/resources/getting-started
 ```
+
 
 After these commands the current directory contains:
 
@@ -113,7 +99,70 @@ and immediately test them in the same REPL.
 
 ---
 
-## 6  Next steps
+## 6 Choosing the OpenAI model
+
+By default, each agent uses the model specified in its `config.json`. If the `model` field is omitted, the framework falls back to `"o4-mini"`.
+
+Edit your sample agent config:
+
+```json title="agents_config/InteractiveAgent/config.json"
+{
+  "name": "InteractiveAgent",
+  "prompt_file": "prompt.md",
+  "return_type": "InteractiveAgentResponse",
+  "inputs_description": "Interactive example agent used in the getting-started guide.",
+  "tools": [],
+  "model": "gpt-4.1"
+}
+```
+
+Notes:
+- You can switch to a faster/cheaper model like `o4-mini` for quick iteration.
+- Higher-capability models like `gpt-4.1` cost more but are often more robust.
+- Make sure `OPENAI_API_KEY` is set in your environment.
+
+---
+
+## 7 Set-up the agent prompt
+
+The agent’s instructions live in `agents_config/InteractiveAgent/prompt.md`. Open the file and tailor it to your use case. For example:
+
+```md title="agents_config/InteractiveAgent/prompt.md"
+You are a helpful assistant. Keep replies concise and actionable.
+When the user asks a question, answer directly. If clarification is needed, ask one short follow-up question.
+```
+
+Tips:
+- Keep the first paragraph as the high-level role/instructions.
+- Add rules or examples below as bullet points to guide style and formatting.
+- Rerun the REPL after edits to compare results quickly.
+
+---
+
+## 8 View the agent logs in OpenAI Platform
+
+Follow these steps to inspect runs in the OpenAI web Platform Monitor:
+
+
+1. Open `https://platform.openai.com/traces` in your browser.
+2. Ensure you are in the correct Project/Workspace that matches the API key you used. Switch projects from the top-left project selector if needed.
+3. Use the search bar:
+   - For interactive REPL runs, search for `User-Chat-InteractiveAgent`.
+   - For autonomous runs, copy the Trace URL printed in the console (e.g. `https://platform.openai.com/traces/<trace_id>`) or search for `autonomous-chat-InteractiveAgent-<JobID>`.
+4. Click the trace to open it. Expand individual steps to see prompts, tool calls, model responses, and timing.
+5. (Optional) Adjust the time range and environment filters to narrow down results.
+
+Tip: If you enabled `--log`, you can also cross-check with the local file in `logs/run_YYYYMMDD_HHMMSS.log` for the printed trace URL and job IDs.
+```bash
+run_agent -v InteractiveAgent
+```
+
+---
+
+## 9 Try out different configurations
+For example, instruct the interactive agent prompt to return the user input backwards (word by word, letter by letter). 
+  
+## 10  Next steps
 
 * Explore the second guide – *Filesystem Agent – Interactive* – to learn how to add a tool
   that grants the agent access to the local file-system.
