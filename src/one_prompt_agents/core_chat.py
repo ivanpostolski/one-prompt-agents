@@ -192,17 +192,39 @@ async def user_chat(mcp_agent: "MCPAgent"):
             async with spinner(f"{getattr(mcp_agent, 'name', 'Agent')} thinking..."): # spinner from chat_utils
                 turn_input = history + [{"role": "user", "content": user_text}]
                 
-                result = await Runner.run(starting_agent=chat_agent, input=turn_input, max_turns=10)
-                
-                final_output_data = result.final_output
-                history = result.to_input_list()
-            
-            # Prefer 'assistant_reply' if present
-            assistant_reply_content = getattr(final_output_data, 'assistant_reply', None)
-            
-            logger.info(f"Assistant raw output: {final_output_data}")
-            if assistant_reply_content:
-                print(f"Assistant: {assistant_reply_content}")
+                try:
+                    result = await Runner.run(starting_agent=chat_agent, input=turn_input, max_turns=10)
+                    
+                    final_output_data = result.final_output
+                    history = result.to_input_list()
+                    
+                    # Prefer 'assistant_reply' if present
+                    assistant_reply_content = getattr(final_output_data, 'assistant_reply', None)
+                    
+                    logger.info(f"Assistant raw output: {final_output_data}")
+                    if assistant_reply_content:
+                        print(f"Assistant: {assistant_reply_content}")
+                    else:
+                        # Fallback to showing the full output if no assistant_reply field
+                        print(f"Assistant: {final_output_data}")
+                        
+                except ModelBehaviorError as e:
+                    logger.error(f"ModelBehaviorError during interactive turn: {e}", exc_info=True)
+                    error_message = f"I encountered a formatting error: {e}. Let me try again."
+                    print(f"Assistant: {error_message}")
+                    
+                    # Add the error to history and continue
+                    history.append({"role": "user", "content": user_text})
+                    history.append({"role": "assistant", "content": error_message})
+                    
+                except Exception as e:
+                    logger.error(f"Error during interactive turn: {e}", exc_info=True)
+                    error_message = f"I encountered an error: {e}. Please try again or rephrase your request."
+                    print(f"Assistant: {error_message}")
+                    
+                    # Add the error to history and continue the conversation
+                    history.append({"role": "user", "content": user_text})
+                    history.append({"role": "assistant", "content": error_message})
 
 async def chat_worker(queue: "asyncio.Queue[Job]") -> None:
     """A worker that processes jobs from an asyncio queue.

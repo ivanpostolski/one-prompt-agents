@@ -25,15 +25,7 @@ apify_server = MCPServerSse(
 _original_connect = apify_server.connect
 async def _wrapped_connect(self, *args, **kwargs):  # noqa: D401
     result = await _original_connect(*args, **kwargs)
-    # Clean up unused example actors
-    await apify_server.call_tool(
-        "remove-actor",
-        {"toolName": "lukaskrivka/google-maps-with-contact-details"}
-    )
-    await apify_server.call_tool(
-        "remove-actor",
-        {"toolName": "apify/instagram-scraper"}
-    )
+    # Customize the configuration of the apify actor (if needed)
     return result
 
 apify_server.connect = MethodType(_wrapped_connect, apify_server) 

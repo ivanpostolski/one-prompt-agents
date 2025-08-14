@@ -1,6 +1,6 @@
 [project]
 name = "one-prompt-agents"
-version = "0.0.2"
+version = "0.0.3"
 description = "A small Framework built on top of openai agents sdk to develop one prompt autonomous agents"
 authors = [{ name = "Ivan Postolski", email = "ivan.postolski@gmail.com" }]
 dependencies = ["uvicorn==0.34.2", "pydantic==2.11.4", "fastmcp==2.3.4", "openai-agents==0.0.14", "fastapi==0.115.12", "requests"]
