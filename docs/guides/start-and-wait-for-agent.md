@@ -1,3 +1,13 @@
+---
+title: Start, Start and wait, Extensible
+order: 7
+caption: Orchestrate agents using start vs. start_and_wait and extend workflows.
+requirements:
+  - Python 3.11
+  - OpenAI API key
+  - Filesystem MCP server running
+supademo: https://app.supademo.com/d/start-wait-extensible-placeholder
+---
 # Orchestrating Agents with `start_and_wait` – Guide
 
 This guide introduces **StartAndWaitAgent**, an autonomous agent that orchestrates

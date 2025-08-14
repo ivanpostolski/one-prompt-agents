@@ -1,3 +1,13 @@
+---
+title: deploy email
+order: 9
+caption: Deploy the EmailProcessor and EmailSender MCPs and verify end-to-end.
+requirements:
+  - Python 3.11
+  - OpenAI API key
+  - AWS credentials and region
+supademo: https://app.supademo.com/d/deploy-email-placeholder
+---
 # Deploy-My-Email-Agent Guide
 
 > 🚧 Deployment instructions will be added here – follow your

@@ -1,3 +1,14 @@
+---
+title: Webscraping autonomous
+order: 5
+caption: Crawl with Apify autonomously and persist results to files.
+requirements:
+  - Python 3.11
+  - OpenAI API key
+  - Apify token
+  - Filesystem MCP server running
+supademo: https://app.supademo.com/d/webscraping-autonomous-placeholder
+---
 # Web-Scraping with Apify – Autonomous Guide
 
 This guide extends the interactive project by adding **ApifyCrawlerAgent** which

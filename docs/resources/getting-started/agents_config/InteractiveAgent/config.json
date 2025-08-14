@@ -5,4 +5,4 @@
     "inputs_description": "Interactive example agent used in the getting-started guide.",
     "tools": [],
     "model": "gpt-5"
-} 
+}

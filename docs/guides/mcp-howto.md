@@ -1,3 +1,12 @@
+---
+title: MCP
+order: 6
+caption: Connect to cloud MCPs and build your own local MCP servers.
+requirements:
+  - Python 3.11
+  - OpenAI API key
+supademo: https://app.supademo.com/d/mcp-placeholder
+---
 # Connecting to Cloud MCPs & Building Your Own – Guide
 
 The Model Context Protocol (MCP) gives agents super-powers by exposing external

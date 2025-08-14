@@ -1,3 +1,13 @@
+---
+title: Webscrapping interactive
+order: 4
+caption: Control Apify actors via MCP with an interactive agent session.
+requirements:
+  - Python 3.11
+  - OpenAI API key
+  - Apify token
+supademo: https://app.supademo.com/d/webscrapping-interactive-placeholder
+---
 # Web-Scraping with Apify – Interactive Guide
 
 This guide walks you through running **ApifyScraperAgent**, an interactive agent

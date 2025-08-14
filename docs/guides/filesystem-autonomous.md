@@ -1,3 +1,13 @@
+---
+title: Filesystem Autonomous
+order: 3
+caption: Run an autonomous agent to summarise files and keep a server alive.
+requirements:
+  - Python 3.11
+  - OpenAI API key
+  - Filesystem MCP server running
+supademo: https://app.supademo.com/d/filesystem-autonomous-placeholder
+---
 # Filesystem Agent – Autonomous Guide
 
 This guide shows how to run **AutoFilesystemAgent** which reads every file it

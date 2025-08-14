@@ -1,3 +1,13 @@
+---
+title: mongodb
+order: 8
+caption: Manage a TCG collection via a MongoDB-backed MCP tool.
+requirements:
+  - Python 3.11
+  - OpenAI API key
+  - MongoDB Atlas account
+supademo: https://app.supademo.com/d/mongodb-placeholder
+---
 # MongoDB Agent – Interactive Guide
 
 This guide shows how to spin up **MongoDBAgent** – an interactive agent that

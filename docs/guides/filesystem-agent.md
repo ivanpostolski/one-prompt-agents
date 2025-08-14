@@ -1,3 +1,13 @@
+---
+title: Filesystem Interactive
+order: 2
+caption: Attach a local filesystem tool and explore capabilities in REPL.
+requirements:
+  - Python 3.11
+  - Node.js ≥ 18
+  - OpenAI API key
+supademo: https://app.supademo.com/d/filesystem-interactive-placeholder
+---
 # Filesystem Agent – Interactive Guide
 
 This guide builds upon *Getting Started* and demonstrates how to attach a **local file-system** tool to an agent so you can explore it **interactively**.

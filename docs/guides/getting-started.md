@@ -1,3 +1,13 @@
+---
+title: Getting Started
+order: 1
+caption: Zero to running agents in minutes using one-prompt-agents.
+requirements:
+  - Python 3.11
+  - OpenAI API key
+  - git (optional)
+supademo: https://app.supademo.com/d/getting-started-placeholder
+---
 # Getting Started with one-prompt-agents
 
 Welcome! This guide will take you from **zero to running an agent** in just a few minutes.  We will
