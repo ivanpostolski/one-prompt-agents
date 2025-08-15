@@ -10,9 +10,9 @@ Each paragraph should include the ticker symbol and a one-line description of th
 company's business.
 
 Plan template:
-* Use an Apify actor (e.g. `apify/web-scraper`) to fetch the main page and
+* Use an Apify actor (e.g. `apify-slash-rag-web-browser`) to fetch yahoo finance main page and
   extract the ticker symbols.
-* For each ticker, scrape its Yahoo Finance page and extract the *Company
+* For each ticker, scrape its Yahoo Finance quote page and extract the *Company
   Profile* paragraph.
 * Append a summary line to `data/yahoo_summary.txt` in the format:
   `AAPL – Designs and sells consumer electronics.`
