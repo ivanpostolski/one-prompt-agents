@@ -1,0 +1,8 @@
+{
+  "api_endpoint_url": "https://your-api-id.execute-api.your-region.amazonaws.com/prod/auth",
+  "api_key": "your-customer-api-key-goes-here",
+  "parameters": {
+    "OPENAI_API_KEY": "sk-...",
+    "ANOTHER_VARIABLE": "some_value"
+  }
+} 

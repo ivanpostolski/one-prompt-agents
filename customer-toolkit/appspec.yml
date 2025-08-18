@@ -1,0 +1,32 @@
+version: 0.0
+os: linux
+files:
+  - source: /src
+    destination: /var/www/app
+  - source: /scripts
+    destination: /opt/codedeploy-scripts/customer
+  - source: /deployment_meta.json
+    destination: /opt/codedeploy-scripts/customer
+permissions:
+  - object: /opt/codedeploy-scripts/customer
+    pattern: "**"
+    owner: root
+    group: root
+    mode: 755
+hooks:
+  ApplicationStop:
+    - location: scripts/stop_app.sh
+      timeout: 300
+      runas: root
+  BeforeInstall:
+    - location: scripts/before_install.sh
+      timeout: 300
+      runas: root
+  AfterInstall:
+    - location: scripts/after_install.sh
+      timeout: 300
+      runas: root
+  ApplicationStart:
+    - location: scripts/start_app.sh
+      timeout: 300
+      runas: root 
